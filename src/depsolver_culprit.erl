@@ -16,7 +16,6 @@
 
 -export_type([detail/0]).
 
--include_lib("eunit/include/eunit.hrl").
 %%============================================================================
 %% Types
 %%============================================================================
@@ -89,7 +88,6 @@ sort_constraints(State, Cons) ->
 -spec is_known(depsolver:dep_graph(), depsolver:constraint()) ->
                       boolean().
 is_known(State,  Con) ->
-  ?debugVal(Con),
     {PkgName, Vsn} = dep_pkg_vsn(Con),
     case gb_trees:lookup(PkgName, State) of
         none ->
