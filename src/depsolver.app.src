@@ -22,6 +22,6 @@
 
 {application, depsolver,
  [{description, "Package Constraint Solver"},
-  {vsn, "0.0.1a"},
+  {vsn, "0.0.2"},
   {modules, []},
   {applications, [kernel, stdlib]}]}.
