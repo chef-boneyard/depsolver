@@ -24,4 +24,4 @@
  [{description, "Package Constraint Solver"},
   {vsn, "0.0.2"},
   {modules, []},
-  {applications, [kernel, stdlib]}]}.
+  {applications, [kernel, stdlib, erlware_commons]}]}.
