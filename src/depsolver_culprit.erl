@@ -40,7 +40,7 @@
 %%============================================================================
 %% Types
 %%============================================================================
-
+-include_lib("eunit/include/eunit.hrl").
 %%============================================================================
 %% Internal API
 %%============================================================================
@@ -49,9 +49,13 @@
 -spec search(depsolver:dep_graph(), [depsolver:constraint()], [depsolver:constraint()])
             -> term().
 search(State, ActiveCons, []) ->
+    ?debugMsg("starting prim solve0"),
     case depsolver:primitive_solve(State, ActiveCons, keep_paths) of
         {fail, FailPaths} ->
-            extract_culprit_information0(ActiveCons, lists:flatten(FailPaths));
+            ?debugFmt("FailPaths: ~p", [FailPaths]),
+            XXX =extract_culprit_information0(ActiveCons, lists:flatten(FailPaths)),
+            ?debugMsg("after extract_culprit_information0 in 0"),
+            XXX;
         _Success ->
             %% This should *never* happen. 'Culprit' above represents the last
             %% possible constraint that could cause things to fail. There for
@@ -59,12 +63,14 @@ search(State, ActiveCons, []) ->
             inconsistant_graph_state
     end;
 search(State, ActiveCons, [NewCon | Constraints]) ->
+    ?debugMsg("starting prim solve1"),
     case depsolver:primitive_solve(State, ActiveCons, keep_paths) of
         {fail, FailPaths} ->
             extract_culprit_information0(ActiveCons, lists:flatten(FailPaths));
         _Success ->
             %% Move one constraint from the inactive to the active
             %% constraints and run again
+            ?debugMsg("search running AGAIN"),
             search(State, [NewCon | ActiveCons], Constraints)
     end.
 
@@ -218,6 +224,7 @@ extract_culprit_information0(ActiveCons, FailInfo)
 -spec extract_root(depsolver:constraints(), [depsolver:pkg()]) ->
                           {[depsolver:constraint()], [depsolver:pkg()]}.
 extract_root(ActiveCons, TPath = [PRoot | _]) ->
+    ?debugMsg("extract_root!!!!"),
     RootName = depsolver:dep_pkg(PRoot),
     Roots = lists:filter(fun(El) ->
                                  RootName =:= depsolver:dep_pkg(El)
@@ -241,6 +248,7 @@ extract_culprit_information1(ActiveCons, {Path, RawConstraints}) ->
                                     {_, Constraints} <- RawConstraints]),
     FailCons =
         lists:foldl(fun(El = {FailedPkg, FailedVsn}, Acc1) ->
+                            ?debugFmt("EXTRACT1: ~p", [El]),
                             case get_constraints(FailedPkg, FailedVsn, Path,
                                                  Constraints) of
                                 [] ->
@@ -251,6 +259,7 @@ extract_culprit_information1(ActiveCons, {Path, RawConstraints}) ->
                     end, [], lists:reverse(Path)),
     TreedPath = strip_goal(treeize_path({'_GOAL_', 'NO_VSN'}, Constraints, [])),
     RunListItems = [extract_root(ActiveCons, TPath) || TPath <- TreedPath],
+    ?debugMsg("extract_culprit_information1 returning"),
     {RunListItems, FailCons}.
 
 -spec follow_chain(depsolver:pkg_name(), depsolver:vsn(),
@@ -329,6 +338,7 @@ treeize_path(Pkg, Constraints, Seen0) ->
     end.
 
 -spec add_s(list()) -> iolist().
+%% TODO: wouldn't matching on [_H|_T] be better here? Or [_L] for length == 1?
 add_s(Roots) ->
      case erlang:length(Roots) of
          Len when Len > 1 ->

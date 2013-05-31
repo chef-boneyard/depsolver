@@ -75,6 +75,8 @@
 %%%-------------------------------------------------------------------
 -module(depsolver).
 
+-include_lib("eunit/include/eunit.hrl").
+
 %% Public Api
 -export([format_error/1,
          format_roots/1,
@@ -237,13 +239,18 @@ add_package_version(State, Pkg, Vsn) ->
 -spec solve(t(),[constraint()]) -> {ok, [pkg()]} | {error, term()}.
 solve({?MODULE, DepGraph0}, RawGoals)
   when erlang:length(RawGoals) > 0 ->
+    ?debugMsg("starting top level solve"),
     Goals = [fix_con(Goal) || Goal <- RawGoals],
     case trim_unreachable_packages(DepGraph0, Goals) of
         Error = {error, _} ->
+            %% ?debugFmt("trim ERROR: ~n~p~n", [gb_trees:to_list(DepGraph0)]),
             Error;
         DepGraph1 ->
+            %% ?debugFmt("trim OK: ~n~p~n", [gb_trees:to_list(DepGraph1)]),
+            ?debugMsg("starting primitive solve"),
             case primitive_solve(DepGraph1, Goals, no_path) of
-                {fail, _} ->
+                {fail, _WW} ->
+                    ?debugFmt("primitive_solve FAILED:~n~p", [_WW]),
                     [FirstCons | Rest] = Goals,
                     {error, depsolver_culprit:search(DepGraph1, [FirstCons], Rest)};
                 Solution ->
@@ -501,6 +508,7 @@ add_constraint(SrcPkg, SrcVsn, PkgsConstraints, PkgConstraint) ->
             {value, {PkgName, Constraints0}} ->
                 Constraints0
         end,
+    %% why not lists:keystore here?
     [{PkgName, [{PkgConstraint, {SrcPkg, SrcVsn}} | Constraints1]} |
      lists:keydelete(PkgName, 1, PkgsConstraints)].
 
@@ -516,6 +524,9 @@ extend_constraints(SrcPkg, SrcVsn, ExistingConstraints0, NewConstraints) ->
 -spec is_version_within_constraint(vsn(),constraint()) -> boolean().
 is_version_within_constraint(_Vsn, Pkg) when is_atom(Pkg) orelse is_binary(Pkg) ->
     true;
+is_version_within_constraint({'NO_VSN', {[], []}}, _) ->
+    false;
+%% FIXME: do we need to cover the other direction where NO_VSN apepars within Pkg arg?
 is_version_within_constraint(Vsn, {_Pkg, NVsn}) ->
     ec_semver:eql(Vsn, NVsn);
 is_version_within_constraint(Vsn, {_Pkg, NVsn, '='}) ->
@@ -616,6 +627,7 @@ all_pkgs(_State, Visited, [], Constraints, _PathInd) ->
     %% met. If not we fail the solution. If so we return those pkg()s
     case lists:all(fun({Pkg, Vsn}) ->
                            lists:all(fun({Constraint, _}) ->
+                                             %% ?debugVal({Vsn, Constraint}),
                                              is_version_within_constraint(Vsn, Constraint)
                                      end,  get_constraints(Constraints, Pkg))
                    end, PkgVsns) of
@@ -628,8 +640,10 @@ all_pkgs(State, Visited, [PkgName | PkgNames], Constraints, PathInd)
   when is_atom(PkgName); is_binary(PkgName) ->
     case lists:keymember(PkgName, 1, Visited) of
         true ->
+            ?debugMsg("all_pkgs recurse 1"),
             all_pkgs(State, Visited, PkgNames, Constraints, PathInd);
         false ->
+            ?debugMsg("co-recurse calling pkgs"),
             pkgs(State, Visited, PkgName, Constraints, PkgNames, PathInd)
     end.
 
@@ -643,6 +657,7 @@ pkgs(DepGraph, Visited, Pkg, Constraints, OtherPkgs, PathInd) ->
                 UConstraints = extend_constraints(Pkg, Vsn, Constraints, Deps),
                 DepPkgs =[dep_pkg(Dep) || Dep <- Deps],
                 NewVisited = [{Pkg, Vsn} | Visited],
+                ?debugMsg("pkgs calling all_pkgs"),
                 Res = all_pkgs(DepGraph, NewVisited, DepPkgs ++ OtherPkgs, UConstraints, PathInd),
                 Res
 
@@ -674,8 +689,10 @@ lists_some(F, Res, PathInd) ->
 %% returns the fail indicator processing continues. If the evaluator returns
 %% anything but the fail indicator that indicates success.
 lists_some(_, [], FailPaths, _PathInd) ->
+    ?debugMsg("returing lists_some"),
     {fail, FailPaths};
 lists_some(F, [H | T], FailPaths, PathInd) ->
+    ?debugMsg("starting lists_some"),
     case F(H) of
         {fail, FailPath} ->
             case PathInd of
@@ -694,6 +711,7 @@ lists_some(F, [H | T], FailPaths, PathInd) ->
 -spec trim_unreachable_packages(dep_graph(), [constraint()]) ->
                                        dep_graph() | {error, term()}.
 trim_unreachable_packages(State, Goals) ->
+    %% ?debugFmt("State and Goals:~n~n~p~n~n~p~n", [State, Goals]),
     {_, NewState0} = new_graph(),
     lists:foldl(fun(_Pkg, Error={error, _}) ->
                         Error;
@@ -711,6 +729,10 @@ rewrite_vsns(ExistingGraph, NewGraph0, Info) ->
                         Error;
                    ({_Vsn, Constraints}, NewGraph1) ->
                         lists:foldl(fun(_DepPkg, Error={error, _}) ->
+                                            %% so this DepPkg was
+                                            %% uncreachable. so want to remove
+                                            %% the version of the pkg that is
+                                            %% constrained by it.
                                             Error;
                                        (DepPkg, NewGraph2) ->
                                             DepPkgName = dep_pkg(DepPkg),
@@ -733,10 +755,19 @@ find_reachable_packages(ExistingGraph, NewGraph0, PkgName) ->
         false ->
             case gb_trees:lookup(PkgName, ExistingGraph) of
                 {value, Info} ->
+                    %% Could we here make sure that all deps of PkgName found in
+                    %% Info are in ExistingGraph and filter out those not found?
+                    %% Problem is that we need the path, not the first
+                    %% level. Fine to remove if any direct dep not found, but
+                    %% could be dep of dep that doesn't exist.
                     NewGraph1 = gb_trees:insert(PkgName, Info, NewGraph0),
                     rewrite_vsns(ExistingGraph, NewGraph1, Info);
                 none ->
-                    {error, {unreachable_package, PkgName}}
+                    Info = [{{'NO_VSN',{[],[]}}, []}],
+                    NewGraph1 = gb_trees:insert(PkgName, Info, NewGraph0),
+                    NewGraph1
+                    %% {error, {unreachable_package, PkgName}}
+                    %%          %% NewGraph0
             end
     end.
 

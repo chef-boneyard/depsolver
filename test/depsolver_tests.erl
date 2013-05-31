@@ -401,26 +401,33 @@ filter_versions_test() ->
 -spec missing_test() -> ok.
 missing_test() ->
 
+    %% app4 is missing, but referenced.
     Dom0 = depsolver:add_packages(depsolver:new_graph(), [{app1, [{"0.1", [{app2, "0.2"},
-                                                             {app3, "0.2", '>='},
-                                                             {app4, "0.2", '='}]},
+                                                                           {app3, "0.2", '>='},
+                                                                           {app4, "0.2", '='}]},
                                                                   {"0.2", [{app4, "0.2"}]},
-                                                                  {"0.3", [{app4, "0.2", '='}]}]},
+                                                                  {"0.3", [{app4, "0.2", '='}]},
+                                                                  {"0.4", [{app2, "0.1"}]}]},
                                                           {app2, [{"0.1", []},
                                                                   {"0.2",[{app3, "0.3"}]},
                                                                   {"0.3", []}]},
                                                           {app3, [{"0.1", []},
                                                                   {"0.2", []},
                                                                   {"0.3", []}]}]),
+
+    ?assertEqual({ok, [{app2,{{0,1},{[],[]}}}, {app1,{{0,4},{[],[]}}}]},
+                 depsolver:solve(Dom0, [{app1, "0.4"}])),
     Ret1 = depsolver:solve(Dom0, [{app4, "0.1"}, {app3, "0.1"}]),
+    ?debugVal(Ret1),
+    ?debugVal(depsolver:format_error(Ret1)),
     _ = depsolver:format_error(Ret1),
     ?assertMatch({error,{unreachable_package,app4}}, Ret1),
 
     Ret2 = depsolver:solve(Dom0, [{app1, "0.1"}]),
     _ = depsolver:format_error(Ret2),
     ?assertMatch({error,{unreachable_package,app4}},
-                 Ret2).
-
+                 Ret2),
+    ok.
 
 binary_test() ->
 
