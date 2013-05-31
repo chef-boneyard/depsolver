@@ -451,8 +451,8 @@ doesnt_exist_test() ->
     Constraints = [{<<"foo">>,[{<<"1.2.3">>, [{<<"bar">>, <<"2.0.0">>, gt}]}]}],
     World = depsolver:add_packages(depsolver:new_graph(), Constraints),
     Ret = depsolver:solve(World, [<<"foo">>]),
-    Ret2 = depsolver:format_error(Ret),
-    ?assertMatch({error,{unreachable_package,<<"bar">>}}, Ret2).
+    _ = depsolver:format_error(Ret),
+    ?assertMatch({error,{unreachable_package,<<"bar">>}}, Ret).
 
 integration_test() ->
       World = {depsolver, {26, {<<"users">>, [{{{1,0,0},{[],[]}},[]}],
@@ -477,11 +477,11 @@ integration_test() ->
                                            {<<"ntp">>, [{{{1,0,0},{[],[]}},[]}], nil,nil}}},
                                        {<<"testcb">>, [{{{0,1,1},{[],[]}},[]}, {{{0,1,0},{[],[]}}, [{<<"deptest">>, {{0,0,0},{[],[]}}, '>='}]}],
                                        {<<"runit">>, [{{{0,14,2},{[],[]}},[]}],
-                                       {<<"php">>, [{{{1,0,2},{[],[]}}, [{<<"xml">>, {{0,0,0},{[],[]}}, '>='},
-                                       {<<"mysql">>, {{0,0,0},{[],[]}}, '>='},
-                                       {<<"build-essential">>, {{0,0,0},{[],[]}}, '>='}]},
-                                       {{{0,9,1},{[],[]}}, [{<<"apache2">>, {{0,0,0},{[],[]}}, '>='}]}], nil,nil},
-                                       {<<"test123">>, [{{{0,0,1},{[],[]}},[]}], nil,nil}},
+                                           {<<"php">>, [{{{1,0,2},{[],[]}}, [{<<"xml">>, {{0,0,0},{[],[]}}, '>='},
+                                           {<<"mysql">>, {{0,0,0},{[],[]}}, '>='},
+                                           {<<"build-essential">>, {{0,0,0},{[],[]}}, '>='}]},
+                                           {{{0,9,1},{[],[]}}, [{<<"apache2">>, {{0,0,0},{[],[]}}, '>='}]}], nil,nil},
+                                           {<<"test123">>, [{{{0,0,1},{[],[]}},[]}], nil,nil}},
                                        {<<"tomcat">>, [{{{0,10,3},{[],[]}}, [{<<"java">>, {{0,0,0},{[],[]}}, '>='},
                                        {<<"jpackage">>, {{0,0,0},{[],[]}}, '>='}]}],
                                        {<<"testcookbook">>, [{{{0,0,1},{[],[]}},[]}], nil,nil}, nil}}},
