@@ -238,7 +238,7 @@ add_package_version(State, Pkg, Vsn) ->
 solve({?MODULE, DepGraph0}, RawGoals)
   when erlang:length(RawGoals) > 0 ->
     Goals = [fix_con(Goal) || Goal <- RawGoals],
-    case trim_unreachable_packages(DepGraph0, Goals) of
+    case mark_unreachable_packages(DepGraph0, Goals) of
         Error = {error, _} ->
             Error;
         DepGraph1 ->
@@ -311,8 +311,7 @@ select_versions_by_constraint({Pkg, Versions}, Constraints) ->
 %% @doc Produce a full error message for a given error condition.  This includes
 %% details of the paths taken to resolve the dependencies and shows which dependencies
 %% could not be satisfied
--spec format_error({error, {unreachable_package, list()} |
-                           {invalid_constraints, [constraint()]} |
+-spec format_error({error, {invalid_constraints, [constraint()]} |
                            list()}) -> iolist().
 format_error(Error) ->
     depsolver_culprit:format_error(Error).
@@ -563,6 +562,8 @@ get_versions(DepGraph, PkgName) ->
     case gb_trees:lookup(PkgName, DepGraph) of
         none ->
             [];
+        {value, unreachable_package} ->
+            [];
         {value, AllVsns} ->
             [Vsn || {Vsn, _} <- AllVsns]
     end.
@@ -691,9 +692,9 @@ lists_some(F, [H | T], FailPaths, PathInd) ->
 %% @doc given a graph and a set of top level goals return a graph that contains
 %% only those top level packages and those packages that might be required by
 %% those packages.
--spec trim_unreachable_packages(dep_graph(), [constraint()]) ->
+-spec mark_unreachable_packages(dep_graph(), [constraint()]) ->
                                        dep_graph() | {error, term()}.
-trim_unreachable_packages(State, Goals) ->
+mark_unreachable_packages(State, Goals) ->
     {_, NewState0} = new_graph(),
     lists:foldl(fun(_Pkg, Error={error, _}) ->
                         Error;
@@ -727,7 +728,7 @@ rewrite_vsns(ExistingGraph, NewGraph0, Info) ->
 find_reachable_packages(_ExistingGraph, Error={error, _}, _PkgName) ->
     Error;
 find_reachable_packages(ExistingGraph, NewGraph0, PkgName) ->
-    case contains_package_version(NewGraph0, PkgName) of
+    case contains_package_name(NewGraph0, PkgName) of
         true ->
             NewGraph0;
         false ->
@@ -736,12 +737,12 @@ find_reachable_packages(ExistingGraph, NewGraph0, PkgName) ->
                     NewGraph1 = gb_trees:insert(PkgName, Info, NewGraph0),
                     rewrite_vsns(ExistingGraph, NewGraph1, Info);
                 none ->
-                    {error, {unreachable_package, PkgName}}
+                    gb_trees:insert(PkgName, unreachable_package, NewGraph0)
             end
     end.
 
 %% @doc
 %%  Checks to see if a package name has been defined in the dependency graph
--spec contains_package_version(dep_graph(), pkg_name()) -> boolean().
-contains_package_version(Dom0, PkgName) ->
+-spec contains_package_name(dep_graph(), pkg_name()) -> boolean().
+contains_package_name(Dom0, PkgName) ->
     gb_trees:is_defined(PkgName, Dom0).
