@@ -145,6 +145,8 @@
 -type fail_detail() :: {fail, [fail_info()]}.
 -type version_checker() :: fun((vsn()) -> fail_detail() | vsn()).
 
+-include_lib("eunit/include/eunit.hrl").
+
 %%============================================================================
 %% API
 %%============================================================================
@@ -517,7 +519,8 @@ extend_constraints(SrcPkg, SrcVsn, ExistingConstraints0, NewConstraints) ->
 
 -spec is_version_within_constraint(vsn(),constraint()) -> boolean().
 is_version_within_constraint({missing}, _Pkg)->
-    nope;
+    %% nope;
+    false;
 is_version_within_constraint(_Vsn, Pkg) when is_atom(Pkg) orelse is_binary(Pkg) ->
     true;
 is_version_within_constraint(Vsn, {_Pkg, NVsn}) ->
@@ -584,7 +587,7 @@ valid_version(PkgName, Vsn, PkgConstraints) ->
 	  end,
 	  Constraints) of
 	true ->
-	  io:format("Missing"),
+	  ?debugMsg("Missing"),
 	  missing;
 	false ->
 	  lists:all(fun ({L, _ConstraintSrc}) ->
@@ -600,6 +603,8 @@ valid_version(PkgName, Vsn, PkgConstraints) ->
                                           [vsn()].
 constrained_package_versions(State, PkgName, PkgConstraints) ->
     Versions = get_versions(State, PkgName),
+    %% when valid_version returns 'missing', this list comp will error with
+    %% 'exception error: bad filter missing'.
     [Vsn || Vsn <- Versions, valid_version(PkgName, Vsn, PkgConstraints)].
 
 %% Given a list of constraints filter said list such that only fail (for things
@@ -668,12 +673,14 @@ pkgs(DepGraph, Visited, Pkg, Constraints, OtherPkgs, PathInd) ->
 				[] ->
 				  {fail, [{Visited, Constraints}]};
 				missing ->
+                                  ?debugMsg("contrained_package_versions returned missing"),
 				  {missing, Pkg};
 				Res ->
 				  lists_some(F, Res, PathInd)
 			  end
 			catch
 			  error:{case_clause,missing} ->
+                                ?debugMsg("caught case_clause,missing"),
 				{missing, Pkg};
 			  Error ->
 				erlang:throw(Error)
