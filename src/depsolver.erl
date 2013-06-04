@@ -244,17 +244,9 @@ solve({?MODULE, DepGraph0}, RawGoals)
   when erlang:length(RawGoals) > 0 ->
 solve(DepGraph0, RawGoals, ?DEFAULT_TIMEOUT).
 
-solve(DepGraph0, RawGoals, Timeout)
+solve(DepGraph0, RawGoals, _Timeout)
   when erlang:length(RawGoals) > 0 ->
     Goals = [fix_con(Goal) || Goal <- RawGoals],
-    case lists:filter(fun (Goal) ->
-                    PkgName = dep_pkg(Goal),
-                    contains_package_version(DepGraph0, PkgName) == false
-            end,
-            Goals) of
-        [] ->
-            Self = self(),
-            F = fun() ->
                     case trim_unreachable_packages(DepGraph0, Goals) of
                         Error = {error, _} ->
                             Error;
@@ -262,25 +254,13 @@ solve(DepGraph0, RawGoals, Timeout)
                             case primitive_solve(DepGraph1, Goals, no_path) of
                                 {fail, _} ->
                                     [FirstCons | Rest] = Goals,
-                                    Self ! {error, depsolver_culprit:search(DepGraph1, [FirstCons], Rest)};
+                                    {error, depsolver_culprit:search(DepGraph1, [FirstCons], Rest)};
                                 {missing, Pkg} ->
-                                    Self ! {error, {unreachable_package, Pkg}};
+                                    {error, {unreachable_package, Pkg}};
                                 Solution ->
-                                    Self ! {ok, Solution}
+                                    {ok, Solution}
                             end
-                    end
-            end,
-            Pid = proc_lib:spawn(F),
-            receive
-                Result ->
-                    Result
-            after Timeout ->
-                    exit(Pid, kill),
-                    {error, resolution_timeout}
-            end;
-        [MissingPackage | _] ->
-            {error, {unreachable_package, dep_pkg(MissingPackage)}}
-    end.
+                    end.
 
 %% Parse a string version into a tuple based version
 -spec parse_version(raw_vsn() | vsn()) -> vsn().
