@@ -1,0 +1,19 @@
+DepSelector inst# 4558 - Adding package id 10/84: min = -1, max = 1, current version 0
+DepSelector inst# 4558 - Adding package id 11/84: min = -1, max = 5, current version 0
+DepSelector inst# 4558 - Adding package id 12/84: min = -1, max = 1, current version 0
+DepSelector inst# 4558 - Adding package id 13/84: min = -1, max = 7, current version 0
+DepSelector inst# 4558 - Adding package id 14/84: min = -1, max = 32, current version 0
+DepSelector inst# 4559 - Adding package id 15/84: min = -1, max = 4, current version 0
+DepSelector inst# 4558 - Adding package id 16/84: min = -1, max = 2, current version 0
+DepSelector inst# 4558 - Adding package id 17/84: min = -1, max = 1, current version 0
+DepSelector inst# 4558 - Adding package id 18/84: min = -1, max = 0, current version 0
+DepSelector inst# 4558 - Marking Package Required 9
+DepSelector inst# 4558 - Marking Package Required 10
+DepSelector inst# 4558 - Marking Package Required 11
+DepSelector inst# 4558 - Marking Package Required 12
+DepSelector inst# 4558 - Marking Package Required 13
+DepSelector inst# 4558 - Marking Package Required 14
+DepSelector inst# 4558 - Marking Package Required 15
+DepSelector inst# 4558 - Marking Package Required 16
+DepSelector inst# 4558 - Marking Package Required 17
+DepSelector inst# 4558 - Marking Package Required 18

@@ -736,7 +736,8 @@ find_reachable_packages(ExistingGraph, NewGraph0, PkgName) ->
                     NewGraph1 = gb_trees:insert(PkgName, Info, NewGraph0),
                     rewrite_vsns(ExistingGraph, NewGraph1, Info);
                 none ->
-                    {error, {unreachable_package, PkgName}}
+                    %{error, {unreachable_package, PkgName}}
+                    NewGraph0
             end
     end.
 

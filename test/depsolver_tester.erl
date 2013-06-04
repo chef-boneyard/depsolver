@@ -27,13 +27,14 @@
 
 -export([run_data/1, run_log/1]).
 -include_lib("eunit/include/eunit.hrl").
-
 -define(ADD_PKG, "^DepSelector\\sinst#\\s(\\d+)\\s-\\s"
         "Adding\\spackage\\sid\\s(\\d+)\\/(\\d+):\\smin\\s=\\s-1,"
         "\\smax\\s=\\s(\\d+),\\scurrent\\sversion\\s0$").
+
 -define(ADD_VC, "^DepSelector\\sinst#\\s(\\d+)\\s-\\sAdding\\sVC\\s"
         "for\\s(\\d+)\\s@\\s(\\d+)\\sdepPkg\\s(\\d+)\\s\\[\\s(\\d+)"
         "\\s(\\d+)\\s\\]$").
+
 -define(ADD_GOAL, "^DepSelector\\sinst#\\s(\\d+)\\s-\\s"
         "Marking\\sPackage\\sRequired\\s(\\d+)$").
 
@@ -199,10 +200,13 @@ log_07be9e47_test() ->
     ?assertMatch({ok, ExpectedResult},
                  Data).
 
-log_183998c1_test() ->
+log_minimal_hang_test() ->
+    ?assertMatch({error, {unreachable_package,<<"9">>}},
+                 run_log(fix_rebar_brokenness("minimal-hang.txt"))).
+
+log_183999c1_test() ->
     ?assertMatch({error, {unreachable_package,<<"9">>}},
                  run_log(fix_rebar_brokenness("log-183998c1-2ada-4214-b308-e480345c42f2.txt"))).
-
 
 log_311a15e7_test() ->
     {ok, Data} = run_log(fix_rebar_brokenness("log-311a15e7-3378-4c5b-beb7-86a1b9cf0ea9.txt")),
