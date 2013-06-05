@@ -241,18 +241,33 @@ add_package_version(State, Pkg, Vsn) ->
 %% an exception is thrown.
 %% ``` depsolver:solve(State, [{app1, "0.1", '>='}]).'''
 -spec solve(t(),[constraint()]) -> {ok, [pkg()]} | {error, term()}.
-solve({?MODULE, DepGraph0}, RawGoals)
+solve({?MODULE, DG}, RawGoals)
   when erlang:length(RawGoals) > 0 ->
 depsolver_supervisor:solve(DepGraph0, RawGoals, ?DEFAULT_TIMEOUT).
 
-do_solve(DepGraph0, RawGoals)
+do_solve(DG, RawGoals)
   when erlang:length(RawGoals) > 0 ->
     Goals = [fix_con(Goal) || Goal <- RawGoals],
+    DepGraph0 = depsolver_reachability_pass:run(DG),
     case find_unreachable_goals(DepGraph0, Goals) of
         [] ->
             trim_then_solve(DepGraph0, Goals);
         [MissingPackage | _] ->
             {error, {unreachable_package, dep_pkg(MissingPackage)}}
+
+
+    case trim_unreachable_packages(DepGraph0, Goals) of
+        Error = {error, _} ->
+            Error;
+        DepGraph1 ->
+            case primitive_solve(DepGraph1, Goals, no_path) of
+                {fail, _} ->
+                    [FirstCons | Rest] = Goals,
+                    {error, depsolver_culprit:search(DepGraph1, [FirstCons], Rest)};
+                Solution ->
+                    {ok, Solution}
+            end
+>>>>>>> Missing package deletion
     end.
 
 %% Parse a string version into a tuple based version
