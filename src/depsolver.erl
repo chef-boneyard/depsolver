@@ -519,8 +519,6 @@ extend_constraints(SrcPkg, SrcVsn, ExistingConstraints0, NewConstraints) ->
                 ExistingConstraints0, [{SrcPkg, SrcVsn} | NewConstraints]).
 
 -spec is_version_within_constraint(vsn(),constraint()) -> boolean().
-is_version_within_constraint({missing}, _Pkg)->
-    false;
 is_version_within_constraint(_Vsn, Pkg) when is_atom(Pkg) orelse is_binary(Pkg) ->
     true;
 is_version_within_constraint(Vsn, {_Pkg, NVsn}) ->
@@ -577,8 +575,6 @@ get_versions(DepGraph, PkgName) ->
 %% @doc
 %% make sure a given name/vsn meets all current constraints
 -spec valid_version(pkg_name(),vsn(),constraints()) -> boolean().
-valid_version(_PkgName, {missing}, _PkgConstraints) ->
-    true;
 valid_version(PkgName, Vsn, PkgConstraints) ->
     Constraints = get_constraints(PkgConstraints, PkgName),
     lists:all(fun ({L, _ConstraintSrc}) ->
@@ -593,13 +589,7 @@ valid_version(PkgName, Vsn, PkgConstraints) ->
                                           [vsn()] | missing.
 constrained_package_versions(State, PkgName, PkgConstraints) ->
     Versions = get_versions(State, PkgName),
-    Result = [Vsn || Vsn <- Versions, valid_version(PkgName, Vsn, PkgConstraints)],
-    case Result of
-      [{missing}] ->
-        missing;
-      Result ->
-        [ R || R <- Result, R =/= {missing} ]
-    end.
+    [Vsn || Vsn <- Versions, valid_version(PkgName, Vsn, PkgConstraints)].
 
 %% Given a list of constraints filter said list such that only fail (for things
 %% that do not match a package and pkg are returned. Since at the end only pkg()
@@ -665,14 +655,6 @@ pkgs(DepGraph, Visited, Pkg, Constraints, OtherPkgs, PathInd) ->
             case constrained_package_versions(DepGraph, Pkg, Constraints) of
                 [] ->
                     {fail, [{Visited, Constraints}]};
-                missing ->
-                    case OtherPkgs of
-                        %%No where else to look in this version, fail, but keep looking
-                        [] ->
-                            {fail, [{Visited, Constraints}]};
-                        _ ->
-                            {missing, Pkg}
-                    end;
                 Res ->
                     lists_some(F, Res, PathInd)
               end.
@@ -759,8 +741,7 @@ find_reachable_packages(ExistingGraph, NewGraph0, PkgName) ->
                     NewGraph1 = gb_trees:insert(PkgName, Info, NewGraph0),
                     rewrite_vsns(ExistingGraph, NewGraph1, Info);
                 none ->
-                    NewGraph1 = gb_trees:insert(PkgName, [{{missing}, []}], NewGraph0),
-                    rewrite_vsns(ExistingGraph, NewGraph1, [{{missing}, []}])
+                    gb_trees:insert(PkgName, [{{missing}, []}], NewGraph0)
             end
     end.
 
@@ -783,8 +764,6 @@ trim_then_solve(DepGraph0, Goals) ->
                     {fail, _} ->
                         [FirstCons | Rest] = Goals,
                         {error, depsolver_culprit:search(DepGraph2, [FirstCons], Rest)};
-                    {missing, Pkg} ->
-                        {error, {unreachable_package, Pkg}};
                     Solution ->
                         {ok, Solution}
                 end
