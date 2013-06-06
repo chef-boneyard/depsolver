@@ -778,13 +778,56 @@ trim_then_solve(DepGraph0, Goals) ->
             Error = {error, _} ->
                 Error;
             DepGraph1 ->
-                case primitive_solve(DepGraph1, Goals, no_path) of
+                DepGraph2 = remove_missing(DepGraph1),
+                case primitive_solve(DepGraph2, Goals, no_path) of
                     {fail, _} ->
                         [FirstCons | Rest] = Goals,
-                        {error, depsolver_culprit:search(DepGraph1, [FirstCons], Rest)};
+                        {error, depsolver_culprit:search(DepGraph2, [FirstCons], Rest)};
                     {missing, Pkg} ->
                         {error, {unreachable_package, Pkg}};
                     Solution ->
                         {ok, Solution}
                 end
         end.
+
+collect_missing(L) ->
+    [ PkgName || {PkgName, [{{missing}, []}]} <- L ].
+
+remove_missing(G) ->
+    L = gb_trees:to_list(G),
+    case collect_missing(L) of
+        [] ->
+            G;
+        Missing ->
+            Res = remove_missing(L, [], Missing, []),
+            gb_trees:from_orddict(lists:usort(Res))
+    end.
+
+remove_missing([], Acc, _Missing, []) ->
+    Acc;
+remove_missing([], Acc, _Missing, NextMissing) ->
+    remove_missing(Acc, [], NextMissing, []);
+remove_missing([{PkgName, PkgInfo} | Rest], Acc, Missing, NextMissing) ->
+    case lists:member(PkgName, Missing) of
+        true ->
+            remove_missing(Rest, Acc, Missing, NextMissing);
+        false ->
+            CleanPkgInfo = [ Elt
+                             || Elt = {_Version, Constraints} <- PkgInfo,
+                                not depends_on_missing(Constraints, Missing) ],
+            {Acc1, NextMissing1} = case CleanPkgInfo of
+                                       [] ->
+                                           {Acc, [PkgName | NextMissing]};
+                                       _ ->
+                                           {[{PkgName, CleanPkgInfo} | Acc], NextMissing}
+                                   end,
+            remove_missing(Rest, Acc1, Missing, NextMissing1)
+    end.
+
+depends_on_missing(Constraints, Missing) ->
+    DepNames = [ dep_pkg(C) || C <- Constraints ],
+    lists:any(fun(X) ->
+                      lists:member(X, Missing)
+              end, DepNames).
+
+        
