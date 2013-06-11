@@ -710,16 +710,28 @@ lists_some(F, [H | T], FailPaths, PathInd) ->
             Res
     end.
 
+trim_then_solve(DepGraph0, Goals) ->
+        case trim_unreachable_packages(DepGraph0, Goals) of
+            DepGraph1 ->
+                case primitive_solve(DepGraph1, Goals, no_path) of
+                    {fail, _} ->
+                        [FirstCons | Rest] = Goals,
+                        {error, depsolver_culprit:search(DepGraph1, [FirstCons], Rest)};
+                    {missing, Pkg} ->
+                        {error, {unreachable_package, Pkg}};
+                    Solution ->
+                        {ok, Solution}
+                end
+        end.
+
 %% @doc given a graph and a set of top level goals return a graph that contains
 %% only those top level packages and those packages that might be required by
 %% those packages.
 -spec trim_unreachable_packages(dep_graph(), [constraint()]) ->
-                                       dep_graph() | {error, term()}.
+                                       dep_graph().
 trim_unreachable_packages(State, Goals) ->
     {_, NewState0} = new_graph(),
-    lists:foldl(fun(_Pkg, Error={error, _}) ->
-                        Error;
-                   (Pkg, NewState1) ->
+    lists:foldl(fun(Pkg, NewState1) ->
                         PkgName = dep_pkg(Pkg),
                         find_reachable_packages(State, NewState1, PkgName)
                 end, NewState0, Goals).
@@ -727,29 +739,23 @@ trim_unreachable_packages(State, Goals) ->
 %% @doc given a list of versions and the constraints for that version rewrite
 %% the new graph to reflect the requirements of those versions.
 -spec rewrite_vsns(dep_graph(), dep_graph(), [{vsn(), [constraint()]}]) ->
-                          dep_graph() | {error, term()}.
+                          dep_graph().
 rewrite_vsns(ExistingGraph, NewGraph0, Info) ->
-    lists:foldl(fun(_, Error={error, _}) ->
-                        Error;
-                   ({_Vsn, Constraints}, NewGraph1) ->
-                        lists:foldl(fun(_DepPkg, Error={error, _}) ->
-                                            Error;
-                                       (DepPkg, NewGraph2) ->
-                                            DepPkgName = dep_pkg(DepPkg),
-                                            find_reachable_packages(ExistingGraph,
-                                                                    NewGraph2,
-                                                                    DepPkgName)
+    lists:foldl(fun({_Vsn, Constraints}, NewGraph1) ->
+                        lists:foldl(fun(DepPkg, NewGraph2) ->
+                                        DepPkgName = dep_pkg(DepPkg),
+                                        find_reachable_packages(ExistingGraph,
+                                                                NewGraph2,
+                                                                DepPkgName)
                                     end, NewGraph1, Constraints)
                 end, NewGraph0, Info).
 
 %% @doc Rewrite the existing dep graph removing anything that is not reachable
 %% required by the goals or any of its potential dependencies.
 -spec find_reachable_packages(dep_graph(), dep_graph(), pkg_name()) ->
-                                     dep_graph() | {error, term()}.
-find_reachable_packages(_ExistingGraph, Error={error, _}, _PkgName) ->
-    Error;
+                                     dep_graph().
 find_reachable_packages(ExistingGraph, NewGraph0, PkgName) ->
-    case contains_package_version(NewGraph0, PkgName) of
+    case contains_package_name(NewGraph0, PkgName) of
         true ->
             NewGraph0;
         false ->
@@ -765,25 +771,10 @@ find_reachable_packages(ExistingGraph, NewGraph0, PkgName) ->
 
 %% @doc
 %%  Checks to see if a package name has been defined in the dependency graph
--spec contains_package_version(dep_graph(), pkg_name()) -> boolean().
-contains_package_version(Dom0, PkgName) ->
+-spec contains_package_name(dep_graph(), pkg_name()) -> boolean().
+contains_package_name(Dom0, PkgName) ->
     gb_trees:is_defined(PkgName, Dom0).
 
 find_unreachable_goals(DepGraph0, Goals) ->
-    [G || G <- Goals, contains_package_version(DepGraph0, dep_pkg(G)) == false].
+    [G || G <- Goals, contains_package_name(DepGraph0, dep_pkg(G)) == false].
 
-trim_then_solve(DepGraph0, Goals) ->
-        case trim_unreachable_packages(DepGraph0, Goals) of
-            Error = {error, _} ->
-                Error;
-            DepGraph1 ->
-                case primitive_solve(DepGraph1, Goals, no_path) of
-                    {fail, _} ->
-                        [FirstCons | Rest] = Goals,
-                        {error, depsolver_culprit:search(DepGraph1, [FirstCons], Rest)};
-                    {missing, Pkg} ->
-                        {error, {unreachable_package, Pkg}};
-                    Solution ->
-                        {ok, Solution}
-                end
-        end.
