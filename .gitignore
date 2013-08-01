@@ -4,3 +4,4 @@
 *.app
 *.plt
 deps/*
+priv/solver
