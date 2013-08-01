@@ -1,3 +1,25 @@
+%% -*- erlang-indent-level: 4; indent-tabs-mode: nil; fill-column: 80 -*-
+%% ex: ts=4 sw=4 et
+%%
+%% Copyright 2013 Opscode, Inc. All Rights Reserved.
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% @author Marc Paradise <marc@opscode.com>
+%%
+%%
 -module(depselector).
 
 -behaviour(gen_server).
@@ -5,7 +27,7 @@
 %% API
 -export([start_link/1,
          new_problem/2,
-%         new_problem_with_debug/2,
+         new_problem_with_debug/2,
          add_package/3,
          add_version_constraint/3,
          add_version_constraint/5,
@@ -13,12 +35,6 @@
          mark_package_suspicious/1,
          mark_package_latest/2,
          solve/0]).
-%states
-% - ready
-% - problem_started
-%
-
-% -export([ready
 
 -export([init/1,
          handle_call/3,
@@ -31,55 +47,50 @@
 -define(TIMEOUT, 5000).
 -define(PORT_TIMEOUT, 4000).
 
+-record(state, { port }).
 
--record(state, {port}).
-
-% TODO: make line size configurable ?
-% TODO a gen_fsm will probabably be a better fit here, bceause:
-% can't add or mark if we haven't started a new problem
-% can't request solve if we haven't started
 start_link(Executable) ->
-    gen_server:start_link({local, ?MODULE}, depselector, Executable, []).
+    gen_server:start_link({local, ?SERVER}, depselector, Executable, []).
 
 init(Executable) ->
-    % Ensure terminate gets invoked via gen_server
     process_flag(trap_exit, true),
-    % TODO check results...
-    Port = open_port({spawn, Executable}, [stream, {line, 1024}]),
-    {ok, #state{port = Port}}.
+    case open_port({spawn, Executable}, [stream, {line, 1024}]) of
+        {error, Reason} ->
+            {error, Reason};
+        Port ->
+            {ok, #state{port = Port}}
+    end.
 
-%new_problem_with_debug(ID, NumPackages) ->
-%    gen_server:call(?MODULE, {send, ["NEW", ID, NumPackages, 1, 1]}, ?TIMEOUT).
-
-%new_problem(ID, NumPackages) ->
-%    gen_server:call(?MODULE, {send, "NEW", [ID, NumPackages, 0, 0]}, ?TIMEOUT).
+new_problem_with_debug(ID, NumPackages) ->
+    gen_server:call(?SERVER, {send, ["NEW", ID, NumPackages, 1, 1]}, ?TIMEOUT).
 
 new_problem(ID, NumPackages) ->
-    gen_server:call(?MODULE, {send, "NEW", [ID, NumPackages]}, ?TIMEOUT).
-% returns {package_id, PID}
+    gen_server:call(?SERVER, {send, "NEW", [ID, NumPackages, 0, 0]}, ?TIMEOUT).
+
 % TODO we can simplify here and our io interface
 % by combinig this with suspicious/required/latest, all in one shot
+-spec add_package(integer(), integer(), integer()) -> {package_id, non_neg_integer()}.
 add_package(MinVer, MaxVer, CurVer) ->
-    gen_server:call(?MODULE, {send, "P", [MinVer, MaxVer, CurVer]}, ?TIMEOUT).
+    gen_server:call(?SERVER, {send, "P", [MinVer, MaxVer, CurVer]}, ?TIMEOUT).
 
 add_version_constraint(PackageId, Version, DepPackageId) ->
     add_version_constraint(PackageId, Version, DepPackageId, -2, -2),
     mark_package_suspicious(PackageId).
 
 add_version_constraint(PackageId, Version, DepPackageId, MinVer, MaxVer) ->
-    gen_server:call(?MODULE, {send, "C", [PackageId, Version, DepPackageId, MinVer, MaxVer]}, ?TIMEOUT).
+    gen_server:call(?SERVER, {send, "C", [PackageId, Version, DepPackageId, MinVer, MaxVer]}, ?TIMEOUT).
 
 mark_package_required(PackageId) ->
-    gen_server:call(?MODULE, {send, "R", [PackageId]}, ?TIMEOUT).
+    gen_server:call(?SERVER, {send, "R", [PackageId]}, ?TIMEOUT).
 
 mark_package_suspicious(PackageId) ->
-    gen_server:call(?MODULE, {send, "S", [PackageId]}, ?TIMEOUT).
+    gen_server:call(?SERVER, {send, "S", [PackageId]}, ?TIMEOUT).
 
 mark_package_latest(PackageId, Weight) ->
-    gen_server:call(?MODULE, {send, "L", [PackageId, Weight]}, ?TIMEOUT).
+    gen_server:call(?SERVER, {send, "L", [PackageId, Weight]}, ?TIMEOUT).
 
 solve() ->
-    gen_server:call(?MODULE, {send, "X", []}, ?TIMEOUT).
+    gen_server:call(?SERVER, {send, "X", []}, ?TIMEOUT).
 
 handle_call({send, Command, Args}, _From, State) ->
     send_and_get(Command, Args, State);
