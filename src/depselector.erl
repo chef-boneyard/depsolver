@@ -29,6 +29,8 @@
 
 -define(SERVER, ?MODULE).
 -define(TIMEOUT, 5000).
+-define(PORT_TIMEOUT, 4000).
+
 
 -record(state, {port}).
 
@@ -54,7 +56,6 @@ init(Executable) ->
 
 new_problem(ID, NumPackages) ->
     gen_server:call(?MODULE, {send, "NEW", [ID, NumPackages]}, ?TIMEOUT).
-
 % returns {package_id, PID}
 % TODO we can simplify here and our io interface
 % by combinig this with suspicious/required/latest, all in one shot
@@ -107,9 +108,13 @@ terminate(_Reason, #state{port = Port} = _State) ->
 
 send_and_get(Command, Args, #state{port = Port} = State) ->
     Args0 = [ safe_int_to_list(X) || X <- Args ],
-    port_command(Port, string:join([Command | Args0], " ") ),
+    C = string:join([Command | Args0], " ") ,
+    % io:fwrite("SENDING: ~p~n", [C]),
+    port_command(Port, C),
+    port_command(Port, "\n"),
     case get_response(Port) of
         {error, timeout} ->
+     %       io:fwrite("Timeout waiting for port~n"),
             {stop, timeout, State};
         Response ->
             {reply, Response, State}
@@ -148,7 +153,7 @@ receive_solution(Port) ->
 receive_solution(_Port, {error, timeout}) ->
      {error, timeout};
 receive_solution(Port, Header) ->
-    [DisabledCount] = io_lib:fread("~d", Header),
+    {ok, [DisabledCount], _Ignore} = io_lib:fread("~d", Header),
     Valid = case DisabledCount of
         0 -> valid;
         _ -> invalid
@@ -168,9 +173,9 @@ receive_packages(Port, PackageId, Acc) ->
             % do we care about order?
             lists:reverse(Acc);
         {Port, {data, {eol, Data}}} ->
-            [Disabled, Version] = io_lib:fread("~a~d", Data),
+            {ok, [Disabled, Version], _Ignore} = io_lib:fread("~d~d", Data),
             receive_packages(Port, PackageId + 1, [{PackageId, Disabled, Version} | Acc])
-    after 5000 ->
+    after ?PORT_TIMEOUT ->
         {error, timeout}
     end.
 
@@ -185,12 +190,12 @@ receive_line(Port, Acc) ->
             lists:flatten(lists:reverse([Data | Acc]));
         {Port, {data, {noeol, Data}}} ->
             receive_line(Port, [Data | Acc])
-    after 5000 ->
+    after ?PORT_TIMEOUT ->
         {error, timeout}
     end.
 
 reply_for_result(_, {error, timeout}) ->
     {error, timeout};
-reply_for_result(Data, Reply) ->
+reply_for_result(Reply, Data) ->
     {ok, {Reply, Data}}.
 
