@@ -1,0 +1,18 @@
+This project creates a standalone executeable 'solver' that interfaces with
+gecode and provides a simple REPL interface.
+
+To build, ensure you have the gecode dev libs installed, then run
+
+./quickbuild
+
+(Makefile coming in subsequent update)
+
+To run examples against standlone solver, they must firtst be converted
+into the correct format for the solver executable to understand.
+
+The file test/reader.rb will parse the content of examples in
+../../test/data and output it in a form usable by standalone solver.
+
+For example:
+./quickbuild
+test/reader.rb ../../test/data/log-07be9e47-6f42-4a5d-b8b5-1d2eae1ad83b.txt | ../../priv/solver
