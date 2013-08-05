@@ -278,6 +278,27 @@ constraint_map_string_test_() ->
                         ?assertEqual(?NO_MATCH_CONSTRAINT, version_manager:constraint_to_range({"6.0.0", gt}, V)),
                         ?assertEqual(?NO_MATCH_CONSTRAINT, version_manager:constraint_to_range({"6.0.1", gt}, V))
                 end},
+               {"between constraints make sense",
+                fun() ->
+                        ?assertEqual(?NO_MATCH_CONSTRAINT,
+                                     version_manager:constraint_to_range({"0.0.0", "0.0.0", between}, V)),
+                        ?assertEqual(lo("0.0.1", "0.0.1", V),
+                                     version_manager:constraint_to_range({"0.0.1", "0.0.9", between}, V)),
+                        ?assertEqual(lo("0.1.0", "0.2.0", V),
+                                     version_manager:constraint_to_range({"0.1.0", "0.3.0", between}, V)),
+                        ?assertEqual(lo("0.2.0", "0.2.0", V),
+                                     version_manager:constraint_to_range({"0.2.0", "0.2.0", between}, V)),
+                        ?assertEqual(?NO_MATCH_CONSTRAINT,
+                                     version_manager:constraint_to_range({"0.2.1", "0.9.9", between}, V)),
+                        ?assertEqual(lo("1.0.0", "1.0.0", V),
+                                     version_manager:constraint_to_range({"1.0.0", "1.1.0", between}, V)),
+                        ?assertEqual(?NO_MATCH_CONSTRAINT,
+                                     version_manager:constraint_to_range({"1.0.1", "1.9.0", between}, V)),
+                        ?assertEqual(lo("6.0.0", "6.0.0", V),
+                                     version_manager:constraint_to_range({"6.0.0", "6.1.0", between}, V)),
+                        ?assertEqual(?NO_MATCH_CONSTRAINT,
+                                     version_manager:constraint_to_range({"6.0.1", "8.0.0", between}, V))
+                end},
                {"PES (~>) constraints make sense",
                 fun() ->
                         ?assertEqual(?NO_MATCH_CONSTRAINT, version_manager:constraint_to_range({"0.0.0", pes}, V)),

@@ -191,6 +191,12 @@ constraint_to_range({Version, lt},  #cookbook_version_mapper{versionList = Versi
     Max = search_lt(Version, VersionList),
     maybe_impossible_constraint(0, Max);
 
+constraint_to_range({Version1, Version2, between},
+                    #cookbook_version_mapper{versionList = VersionList}) ->
+    Min = search_gte(Version1, VersionList),
+    Max = search_lte(Version2, VersionList),
+    maybe_impossible_constraint(Min, Max);
+
 constraint_to_range({Version, '~>'}, Versions) ->
     constraint_to_range({Version, pes}, Versions);
 constraint_to_range({Version, pes},  #cookbook_version_mapper{versionList = VersionList}) ->
