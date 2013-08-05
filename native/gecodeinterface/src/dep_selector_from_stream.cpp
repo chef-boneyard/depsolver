@@ -20,10 +20,7 @@
 #include "dep_selector_to_gecode.h"
 #include "dep_selector_from_stream.h"
 
-#include <cstdio>
-#include <limits>
 #include <iostream>
-#include <vector>
 
 using namespace std;
 
