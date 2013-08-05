@@ -38,7 +38,7 @@ VersionProblem * dep_selector_from_stream(std::istream & f) {
     string guid;
     int dumpStats, debug;
     int packageCount, packageId;
-
+    bool replySent = false;
     f >> guid >> packageCount >> dumpStats >> debug;
     cout << "OK" << endl << flush;
 
@@ -61,6 +61,7 @@ VersionProblem * dep_selector_from_stream(std::istream & f) {
           return problem;
         }
         cout << "PID" << endl << id << endl;
+        replySent = true;
       } else if (cmd.compare("C") == 0) {
         // TODO here down, make sure we have 'problem'...
         int version, dependentPackageId, minDependentVersion, maxDependentVersion;
@@ -94,6 +95,12 @@ VersionProblem * dep_selector_from_stream(std::istream & f) {
       } else {
          cout << "ERROR" << endl << "unexpected input: " << cmd << endl;
          return problem;
+      }
+
+      if (replySent) {
+        replySent = false;
+      } else {
+        cout << "OK" << endl;
       }
       cout.flush();
       if (!check_state(f)) {
