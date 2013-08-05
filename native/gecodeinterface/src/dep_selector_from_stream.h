@@ -21,7 +21,8 @@
 #define dep_selector_to_stream_h
 
 #include <istream>
-#include "dep_selector_to_gecode_interface.h"
+class VersionProblem;
+
 
 VersionProblem * dep_selector_from_stream(std::istream& f);
 

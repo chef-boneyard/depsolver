@@ -20,7 +20,6 @@
 #ifndef dep_selector_to_gecode_h
 #define dep_selector_to_gecode_h
 
-#include "dep_selector_to_gecode_interface.h"
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -31,6 +30,7 @@
 #include <gecode/minimodel.hh>
 
 using namespace Gecode;
+class VersionProblem;
 
 // TODO:
 // Allow retrieval of multiple solutions

@@ -43,7 +43,6 @@ VersionProblem * dep_selector_from_stream(std::istream & f) {
     cout << "OK" << endl << flush;
 
     VersionProblem *problem = new VersionProblem(packageCount, dumpStats, debug, guid.c_str());
-    bool replied = false;
     while (true) {
       // TODO definitely need some better error handling throughout...
       if (!check_state(f)) {
@@ -120,12 +119,12 @@ bool check_state(std::istream & f) {
 
 void dump_solution(VersionProblem * solution) {
   int count = solution->PackageCount();
+  // Solution start indicator, along with valid indicator.
   cout << "SOL" << endl << solution->GetDisabledVariableCount() << endl;
   for (int id = 0; id < count; id++) {
-    // not dumping ids from now - these are sequential so id can be reliably inferred by caller
-    // TODO alternatively,  if we can confirm we don't care about disabled pcakages
-    // we can just do id + version, and skip disabled packages.
+    // ids are sequential, so there's no reason to dump them - the caller can infer them.
     cout << solution->GetPackageDisabledState(id) << " " << solution->GetPackageVersion(id) << endl;
   }
+  // End-of-solution indicator
   cout << "X"<< endl;
 }
