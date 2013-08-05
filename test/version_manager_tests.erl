@@ -27,16 +27,6 @@
 
 -define(NO_MATCH_CONSTRAINT, {-2,-2}).
 
--define(VERSION_SET_SIMPLE2, [ {0,1,0}, %% This is deliberately out of order
-                              {0,2},
-                              {3,0},
-                              {0,0,1},
-                              {1,0},
-                              {0,1,3},
-                              {2,0,0},
-                              {4,0,0},
-                              {5,0,0},
-                              {6,0,0}] ).
 -define(VERSION_SET_PARSED, [{0,1,0}, %% This is deliberately out of order
                              {0,2,0},
                              {3,0,0},
@@ -265,6 +255,14 @@ problem_map_test_() ->
                ?assertEqual({1,0}, version_manager:get_version_id(app2, "0.1",Problem)),
                ?assertEqual({2,1}, version_manager:get_version_id(app3, "0.2",Problem)),
                ?assertEqual({2,2}, version_manager:get_version_id(app3, "0.3",Problem))
+       end},
+      {"Simple map constraint",
+       fun() ->
+               Problem = make_problem(),
+               ?assertEqual({0,0}, version_manager:map_constraint(app1, "0.1",Problem)),
+               ?assertEqual({1,0}, version_manager:map_constraint(app2, {"0.1", gte} ,Problem)),
+               ?assertEqual({2,1}, version_manager:map_constraint(app3, {"0.2", lte}, Problem)),
+               ?assertEqual({2,2}, version_manager:map_constraint(app3, {"0.0", pes} ,Problem))
        end}
 
      ]}.

@@ -240,7 +240,7 @@ search_gte(Version, VersionArray) ->
     case Pos of
         End ->
             not_found;
-        _ -> 
+        _ ->
             Pos
     end.
 

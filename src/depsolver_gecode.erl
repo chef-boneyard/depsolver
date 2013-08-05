@@ -247,7 +247,7 @@ add_package_version(State, Pkg, Vsn) ->
 %% ``` depsolver:solve(State, [{app1, "0.1", '>='}]).'''
 -spec solve(t(),[constraint()]) -> {ok, [pkg()]} | {error, term()}.
 solve({?MODULE, DepGraph0}, RawGoals) when erlang:length(RawGoals) > 0 ->
-    depselector:new_problem_with_debug(<<"TEST">>, gb_trees:size(DepGraph0) + 1),
+    ?debugVal(depselector:new_problem_with_debug("TEST", gb_trees:size(DepGraph0) + 1)),
     Problem = generate_versions(DepGraph0),
     ?debugFmt("~p~n", [Problem]),
     generate_constraints(DepGraph0, RawGoals, Problem),
@@ -259,7 +259,8 @@ generate_versions(DepGraph0) ->
     Versions0 = version_manager:new(),
     %% the runlist is treated as a virtual package.
     Versions1 = version_manager:add_package(?RUNLIST, [?RUNLIST_VERSION], Versions0),
-    depselector:add_package(0,0,0),
+    {ok, {package_id, Id}} = depselector:add_package(0,0,0),
+    ?debugVal(Id),
     depselector:mark_package_required(0),
 
     %% Add all the other packages
