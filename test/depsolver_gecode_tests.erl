@@ -35,9 +35,9 @@ all_test_() ->
     end,
     fun(_) -> application:stop(depsolver) end,
     [
-      {?MODULE, first}
-      %% {?MODULE, second},
-      %% {?MODULE, third},
+     {?MODULE, first},
+     {?MODULE, second},
+     {?MODULE, third}
       %% {?MODULE, fail},
       %% {?MODULE, conflicting_passing},
       %% {?MODULE, circular_dependencies},
@@ -55,6 +55,7 @@ all_test_() ->
       %% {?MODULE, missing_via_culprit_search},
       %% {generator, ?MODULE, format},
       %% {generator, ?MODULE, missing2}
+
   ]
 }.
 
@@ -70,11 +71,13 @@ first() ->
                                                                   {"0.2", []},
                                                                   {"0.3", []}]}]),
 
+    Result = norm({ok,[
+                       {app1,{{0,1},{[],[]}}},
+                       {app2,{{0,2},{[],[]}}},
+                       {app3,{{0,3},{[],[]}}} ] } ) ,
 
-    case depsolver_gecode:solve(Dom0, [{app1, "0.1"}]) of
-        {ok,[{app3,{{0,3},{[],[]}}},
-             {app2,{{0,2},{[],[<<"build">>,33]}}},
-             {app1,{{0,1},{[],[]}}}]} ->
+    case norm(depsolver_gecode:solve(Dom0, [{app1, "0.1"}])) of
+        Result ->
             ok;
         E ->
             erlang:throw({invalid_result, E})
@@ -98,13 +101,12 @@ second() ->
                                                        {app3, "0.3"}]},
                                               {"0.3", []}]}]),
 
-    X = depsolver_gecode:solve(Dom0, [{app1, "0.1"},
-                     {app2, "0.3"}]),
+    X = norm(depsolver_gecode:solve(Dom0, [{app1, "0.1"}, {app2, "0.3"}])),
 
-    ?assertMatch({ok, [{app3,{{0,3},{[],[]}}},
-                       {app2,{{0,3},{[],[]}}},
-                       {app4,{{0,2},{[],[]}}},
-                       {app1,{{0,1},{[],[]}}}]},
+    ?assertEqual(norm({ok, [{app3,{{0,3},{[],[]}}},
+                            {app2,{{0,3},{[],[]}}},
+                            {app4,{{0,2},{[],[]}}},
+                            {app1,{{0,1},{[],[]}}}]}),
                  X).
 
 third() ->
@@ -137,20 +139,21 @@ third() ->
                                               {"2.0.0", []},
                                               {"6.0.0", []}]}]),
 
-    ?assertMatch({ok, [{app5,{{6,0,0},{[],[]}}},
+    ExpRes = norm({ok, [{app5,{{6,0,0},{[],[]}}},
                        {app3,{{0,1,3},{[],[]}}},
                        {app4,{{6,0,0},{[],[]}}},
                        {app2,{{3,0},{[],[]}}},
-                       {app1,{{3,0},{[],[]}}}]},
-                 depsolver_gecode:solve(Dom0, [{app1, "3.0"}])),
+                       {app1,{{3,0},{[],[]}}}]}),
 
+    ?assertMatch(ExpRes, norm(depsolver_gecode:solve(Dom0, [{app1, "3.0"}]))),
 
-    ?assertMatch({ok, [{app5,{{6,0,0},{[],[]}}},
-                       {app3,{{0,1,3},{[],[]}}},
-                       {app4,{{6,0,0},{[],[]}}},
-                       {app2,{{3,0},{[],[]}}},
-                       {app1,{{3,0},{[],[]}}}]},
-                 depsolver_gecode:solve(Dom0, [app1])).
+    ExpRes = norm({ok, [{app5,{{6,0,0},{[],[]}}},
+                        {app3,{{0,1,3},{[],[]}}},
+                        {app4,{{6,0,0},{[],[]}}},
+                        {app2,{{3,0},{[],[]}}},
+                        {app1,{{3,0},{[],[]}}}]}),
+
+    ?assertMatch(ExpRes, depsolver_gecode:solve(Dom0, [app1])).
 
 fail() ->
     Dom0 = depsolver_gecode:add_packages(depsolver_gecode:new_graph(),
@@ -652,3 +655,8 @@ missing2() ->
 %%
 equal_bin_string(Expected, Got) ->
   ?_assertEqual(Expected, erlang:iolist_to_binary(Got)).
+
+
+norm({ok, Constraints}) ->
+    {ok, lists:sort([ V ||  {V, {_,_}} <- Constraints ])}.
+
