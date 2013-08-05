@@ -221,6 +221,94 @@ constraint_map_test_() ->
       end
      ]}.
 
+constraint_map_string_test_() ->
+    {foreach,
+     fun() ->
+             version_manager:make(?VERSION_SET_PARSED)
+     end,
+     fun(_) ->
+             ok
+     end,
+     [
+      fun(V) ->
+              [
+               {"Equality constraints make sense",
+                fun() ->
+                        ?assertEqual(?NO_MATCH_CONSTRAINT, version_manager:constraint_to_range({"0.0.0", eq}, V)),
+                        ?assertEqual({0,0}, version_manager:constraint_to_range({"0.0.1", eq}, V)),
+                        ?assertEqual({4,4}, version_manager:constraint_to_range({"1.0.0", eq}, V)),
+                        ?assertEqual(?NO_MATCH_CONSTRAINT, version_manager:constraint_to_range({"1.0.1", eq}, V)),
+                        ?assertEqual({9,9}, version_manager:constraint_to_range({"6.0.0", eq}, V)),
+                        ?assertEqual(?NO_MATCH_CONSTRAINT, version_manager:constraint_to_range({"6.0.1", eq}, V))
+                end},
+               {"LTE constraints make sense",
+                fun() ->
+                        ?assertEqual(?NO_MATCH_CONSTRAINT, version_manager:constraint_to_range({"0.0.0", lte}, V)),
+                        ?assertEqual({0,0}, version_manager:constraint_to_range({"0.0.1", lte}, V)),
+                        ?assertEqual({0,4}, version_manager:constraint_to_range({"1.0.0", lte}, V)),
+                        ?assertEqual({0,4}, version_manager:constraint_to_range({"1.0.1", lte}, V)),
+                        ?assertEqual({0,9}, version_manager:constraint_to_range({"6.0.0", lte}, V)),
+                        ?assertEqual({0,9}, version_manager:constraint_to_range({"6.0.1", lte}, V))
+                end},
+               {"LT constraints make sense",
+                fun() ->
+                        ?assertEqual(?NO_MATCH_CONSTRAINT, version_manager:constraint_to_range({"0.0.0", lt}, V)),
+                        ?assertEqual(?NO_MATCH_CONSTRAINT, version_manager:constraint_to_range({"0.0.1", lt}, V)),
+                        ?assertEqual({0,0}, version_manager:constraint_to_range({"0.1.0", lt}, V)),
+                        ?assertEqual({0,3}, version_manager:constraint_to_range({"1.0.0", lt}, V)),
+                        ?assertEqual({0,4}, version_manager:constraint_to_range({"1.0.1", lt}, V)),
+                        ?assertEqual({0,8}, version_manager:constraint_to_range({"6.0.0", lt}, V)),
+                        ?assertEqual({0,9}, version_manager:constraint_to_range({"6.0.1", lt}, V))
+                end},
+              {"GTE constraints make sense",
+                fun() ->
+                        ?assertEqual({0,9}, version_manager:constraint_to_range({"0.0.0", gte}, V)),
+                        ?assertEqual({0,9}, version_manager:constraint_to_range({"0.0.1", gte}, V)),
+                        ?assertEqual({4,9}, version_manager:constraint_to_range({"1.0.0", gte}, V)),
+                        ?assertEqual({5,9}, version_manager:constraint_to_range({"1.0.1", gte}, V)),
+                        ?assertEqual({9,9}, version_manager:constraint_to_range({"6.0.0", gte}, V)),
+                        ?assertEqual(?NO_MATCH_CONSTRAINT, version_manager:constraint_to_range({"6.0.1", gte}, V))
+                end},
+               {"GT constraints make sense",
+                fun() ->
+                        ?assertEqual({0,9}, version_manager:constraint_to_range({"0.0.0", gt}, V)),
+                        ?assertEqual({1,9}, version_manager:constraint_to_range({"0.0.1", gt}, V)),
+                        ?assertEqual({5,9}, version_manager:constraint_to_range({"1.0.0", gt}, V)),
+                        ?assertEqual({5,9}, version_manager:constraint_to_range({"1.0.1", gt}, V)),
+                        ?assertEqual(?NO_MATCH_CONSTRAINT, version_manager:constraint_to_range({"6.0.0", gt}, V)),
+                        ?assertEqual(?NO_MATCH_CONSTRAINT, version_manager:constraint_to_range({"6.0.1", gt}, V))
+                end},
+               {"PES (~>) constraints make sense",
+                fun() ->
+                        ?assertEqual(?NO_MATCH_CONSTRAINT, version_manager:constraint_to_range({"0.0.0", pes}, V)),
+                        ?assertEqual(lo("0.0.1", "0.0.1", V),
+                                     version_manager:constraint_to_range({"0.0", pes}, V)),
+%                        ?assertEqual(lo("0.0.1", "0.2.0", V),
+%                                     version_manager:constraint_to_range({"0", pes}, V)),
+                        ?assertEqual(lo("0.0.1", "0.0.1", V),
+                                     version_manager:constraint_to_range({"0.0.1", pes}, V)),
+                        ?assertEqual(lo("0.1.0", "0.1.3", V),
+                                     version_manager:constraint_to_range({"0.1", pes}, V)),
+                        ?assertEqual(lo("0.2.0", "0.2.0", V),
+                                     version_manager:constraint_to_range({"0.2.0", pes}, V)),
+                        ?assertEqual(?NO_MATCH_CONSTRAINT,
+                                     version_manager:constraint_to_range({"0.2.1", pes}, V)),
+                        ?assertEqual(lo("1.0.0", "1.0.0", V),
+                                     version_manager:constraint_to_range({"1.0", pes}, V)),
+                        ?assertEqual(lo("1.0.0", "1.0.0", V),
+                                     version_manager:constraint_to_range({"1.0.0", pes}, V)),
+                        ?assertEqual(?NO_MATCH_CONSTRAINT,
+                                     version_manager:constraint_to_range({"1.0.1", pes}, V)),
+                        ?assertEqual(lo("6.0.0", "6.0.0", V),
+                                     version_manager:constraint_to_range({"6.0.0", pes}, V)),
+                        ?assertEqual(?NO_MATCH_CONSTRAINT,
+                                     version_manager:constraint_to_range({"6.0.1", pes}, V))
+                end}
+              ]
+      end
+     ]}.
+
+
 version_manager_make() ->
     version_manager:make(?VERSION_SET_PARSED).
 
