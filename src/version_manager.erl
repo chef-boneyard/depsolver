@@ -130,6 +130,18 @@ int_to_version(Value, #cookbook_version_mapper{versionList = Versions}) ->
     {Version, _} = array:get(Value, Versions),
     Version.
 
+
+normalize(V) when is_binary(V) orelse is_list(V) ->
+    normalize(parse(V));
+normalize({ V, {A,B} }) when is_tuple(V) ->
+    {normalize(V), {A,B}};
+normalize({Major}) when not is_tuple(Major) ->
+    {Major, 0, 0};
+normalize({Major, Minor}) when not is_tuple(Major) ->
+    {Major, Minor, 0};
+normalize({Major, Minor, Patch}) when not is_tuple(Major) ->
+    {Major, Minor, Patch}.
+
 parse({X,Y,Z}) when not is_tuple(X) ->
     {{X,Y,Z}, {[],[]}};
 parse({X,Y}) when not is_tuple(X) ->
@@ -182,8 +194,8 @@ constraint_to_range({Version, lt},  #cookbook_version_mapper{versionList = Versi
 constraint_to_range({Version, '~>'}, Versions) ->
     constraint_to_range({Version, pes}, Versions);
 constraint_to_range({Version, pes},  #cookbook_version_mapper{versionList = VersionList}) ->
-    Min = search_gte(normalize(Version), VersionList),
-    Max = search_lt(find_next_version(Version), VersionList),
+    Min = search_gte(normalize(parse(Version)), VersionList),
+    Max = search_lt(find_next_version(parse(Version)), VersionList),
     maybe_impossible_constraint(Min,Max).
 
 maybe_impossible_constraint(not_found, _)->
@@ -200,13 +212,10 @@ find_max(#cookbook_version_mapper{versionList = VersionList}) ->
 find_max(VersionList) ->
     array:size(VersionList)-1.
 
-normalize({Major}) when not is_tuple(Major) ->
-    {Major, 0, 0};
-normalize({Major, Minor}) when not is_tuple(Major) ->
-    {Major, Minor, 0};
-normalize({Major, Minor, Patch}) when not is_tuple(Major) ->
-    {Major, Minor, Patch}.
-
+find_next_version({ V, {A,B} }) ->
+    {find_next_version(V), {A,B}};
+find_next_version(V) when is_integer(V) ->
+    {V+1, 0, 0};
 find_next_version({Major}) ->
     {Major+1, 0, 0};
 find_next_version({Major, Minor}) ->

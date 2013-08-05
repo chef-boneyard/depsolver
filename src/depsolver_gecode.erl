@@ -252,7 +252,7 @@ solve({?MODULE, DepGraph0}, RawGoals) when erlang:length(RawGoals) > 0 ->
     ?debugFmt("~p~n", [Problem]),
     generate_constraints(DepGraph0, RawGoals, Problem),
     Solution = depselector:solve(),
-    extract_constraints(Solution).
+    extract_constraints(Solution, Problem).
 
 %% Instantiate versions
 generate_versions(DepGraph0) ->
@@ -279,6 +279,7 @@ add_versions_for_package({PkgName, VersionConstraints, Iterator}, Acc) ->
 
 %% Constraints for each version
 generate_constraints(DepGraph, RawGoals, Problem) ->
+    %% The runlist package is a synthetic package 
     add_constraints_for_package(?RUNLIST, [{ ?RUNLIST_VERSION, RawGoals }], Problem),
     gb_trees:map(fun(N,C) -> add_constraints_for_package(N,C,Problem) end, DepGraph).
 
@@ -299,9 +300,13 @@ add_constraint_element({DepPkgName, DepPkgVersion, Type}, PkgIndex, VersionId, P
     {DepPkgIndex, {Min,Max}} = version_manager:map_constraint(DepPkgName, {DepPkgVersion, Type}, Problem),
     depselector:add_version_constraint(PkgIndex, VersionId, DepPkgIndex, Min, Max).
 
-extract_constraints(Solution) ->
+extract_constraints({ok, {solution, Results}} = Solution, Problem) ->
     ?debugFmt("~p~n",[Solution]),
-    ok.
+    {{state, _}, {disabled, _Disabled_Count}, {packages, PackageVersions}} = Results,
+    %% The runlist is a synthetic package, and should be filtered out 
+    [{0,0,0} | PackageVersionsReal ] = PackageVersions,
+    {ok, [version_manager:unmap_constraint({PackageId, VersionId}, Problem) ||
+             {PackageId, _DisabledState, VersionId} <- PackageVersionsReal] }.
 
 do_solve(DepGraph0, RawGoals)
   when erlang:length(RawGoals) > 0 ->
