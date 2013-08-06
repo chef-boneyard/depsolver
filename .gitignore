@@ -5,3 +5,4 @@
 *.plt
 deps/*
 priv/solver
+native/geocodeinterface/lib
