@@ -37,9 +37,9 @@ all_test_() ->
     [
 %%     {?MODULE, first}, %% OK
 %%     {?MODULE, second}, %% OK
-     {?MODULE, third}
+%%     {?MODULE, third}, %% OK
       %% {?MODULE, fail},
-%%     {?MODULE, conflicting_passing},
+     {?MODULE, conflicting_passing}
 %%     {?MODULE, circular_dependencies},
      %% {?MODULE, conflicting_failing},
 %%     {?MODULE, pessimistic_major_minor_patch}
@@ -663,5 +663,11 @@ equal_bin_string(Expected, Got) ->
   ?_assertEqual(Expected, erlang:iolist_to_binary(Got)).
 
 
+
+strip_semver({A, {_, _}}) ->
+    A;
+strip_semver(A) ->
+    A.
+
 norm({ok, Constraints}) ->
-    {ok, lists:sort([ {A, V} ||  {A, {V,_}} <- Constraints ])}.
+    {ok, lists:sort([ {A, strip_semver(V)} ||  {A, V} <- Constraints ])}.
