@@ -19,19 +19,13 @@
 #include "dep_selector_to_gecode.h"
 #include <iostream>
 
-const int BUFSIZE = 256;
 using namespace std;
 
 int main(int argc, char * argv[])
 {
   // A simple command loop
-  // NEXT means the next problem is incoming, which has its own expected syntax.
-  //
-  // Anything else means we're done.
-  // our outputs are similarly simple:
-  // "OK" - ok
-  // "ERROR" - an error has occurred.
-  // "SOL" - solution follows
+  // NEW means the next problem is incoming, which has its own expected syntax.
+  // EXIT means that we should terminate.
   string cmd;
 
   while (1) {

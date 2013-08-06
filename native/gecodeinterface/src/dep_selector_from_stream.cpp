@@ -28,7 +28,6 @@ using namespace std;
 const int BUFSIZE = 1024;
 
 void dump_solution(VersionProblem *);
-bool check_state(std::istream & f);
 
 VersionProblem * dep_selector_from_stream(std::istream & f) {
     string cmd;
@@ -41,13 +40,14 @@ VersionProblem * dep_selector_from_stream(std::istream & f) {
 
     VersionProblem *problem = new VersionProblem(packageCount, dumpStats, debug, guid.c_str());
     while (true) {
-      // TODO definitely need some better error handling throughout...
-      if (!check_state(f)) {
+      if ((f.rdstate() & std::istream::failbit) > 0) {
         cout << "ERROR" << endl << "input failure" << endl;
         cout.flush();
         return problem;
       }
+
       f >> cmd;
+
       if (cmd.compare("P") == 0) {
         int minVersion, maxVersion, currentVersion;
         f >> minVersion >> maxVersion >> currentVersion;
@@ -92,26 +92,17 @@ VersionProblem * dep_selector_from_stream(std::istream & f) {
          cout << "ERROR" << endl << "unexpected input: " << cmd << endl;
          return problem;
       }
-
       if (replySent) {
         replySent = false;
       } else {
         cout << "OK" << endl;
       }
       cout.flush();
-      if (!check_state(f)) {
-        return problem;
-      }
     }
     return problem;
 }
 
 bool check_state(std::istream & f) {
-  if (f.rdstate() & std::istream::failbit > 0) {
-    return false;
-  } else {
-    return true;
-  }
 }
 
 void dump_solution(VersionProblem * solution) {
