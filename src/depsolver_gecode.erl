@@ -259,7 +259,12 @@ add_versions_for_package(none, Acc) ->
 add_versions_for_package({PkgName, VersionConstraints, Iterator}, Acc) ->
     {Versions, _} = lists:unzip(VersionConstraints),
     NAcc = version_manager:add_package(PkgName, Versions, Acc),
-    MinVersion = -1, %% Check that this is correct generally
+    %% -1 denotes the possibility of an unused package.
+    %% While the named versions are always in the range 0...N, we
+    %% may want to mark a package as not used As soon as a package is mentioned in the dependency
+    %% chain, it creates a constraint limiting it to be 0 or greater, but until it is mentioned, it
+    %% can be -1, and hence unused.
+    MinVersion = -1,
     MaxVersion = length(Versions) - 1,
     depselector:add_package(MinVersion, MaxVersion, MaxVersion),
     add_versions_for_package(gb_trees:next(Iterator), NAcc).
