@@ -105,8 +105,9 @@ map_constraint(DependentPackage, Constraint, #problem{byName=ByName}) ->
             %% 'suspicious'...
             no_matching_package;
         {value, #package{index=Index, versionMapper = Mapper}} ->
-            ?debugVal(Constraint),
             ConstraintRange = constraint_to_range(Constraint, Mapper),
+            ?debugFmt("PKG: ~p C ~p -> I ~p R ~p~n",
+                      [DependentPackage, Constraint, Index, ConstraintRange]),
             {Index, ConstraintRange}
     end.
 
@@ -130,25 +131,19 @@ int_to_version(Value, #cookbook_version_mapper{versionList = Versions}) ->
     {Version, _} = array:get(Value, Versions),
     Version.
 
-
-normalize(V) when is_binary(V) orelse is_list(V) ->
-    normalize(parse(V));
-normalize({ V, {A,B} }) when is_tuple(V) ->
-    {normalize(V), {A,B}};
-normalize({Major}) when not is_tuple(Major) ->
-    {Major, 0, 0};
-normalize({Major, Minor}) when not is_tuple(Major) ->
-    {Major, Minor, 0};
-normalize({Major, Minor, Patch}) when not is_tuple(Major) ->
-    {Major, Minor, Patch}.
-
-parse({X,Y,Z}) when not is_tuple(X) ->
+parse({V, {A, B}}) when is_tuple(V) andalso size(V) < 4 ->
+    {V, {A,B}};
+parse({X,Y,Z}) when is_integer(X) andalso
+                    is_integer(Y) andalso
+                    is_integer(Z) ->
     {{X,Y,Z}, {[],[]}};
-parse({X,Y}) when not is_tuple(X) ->
+parse({X,Y}) when is_integer(X) andalso is_integer(Y) ->
     {{X,Y}, {[],[]}};
 parse({X}) when not is_tuple(X) ->
-    {{X}, {[],[]}};
-parse(X) ->
+    {X, {[],[]}};
+parse(X) when is_integer(X) ->
+    {X, {[], []}};
+parse(X) when is_binary(X) orelse is_list(X) ->
     ec_semver:parse(X).
 
 
@@ -200,8 +195,13 @@ constraint_to_range({Version1, Version2, between},
 constraint_to_range({Version, '~>'}, Versions) ->
     constraint_to_range({Version, pes}, Versions);
 constraint_to_range({Version, pes},  #cookbook_version_mapper{versionList = VersionList}) ->
-    Min = search_gte(normalize(parse(Version)), VersionList),
-    Max = search_lt(find_next_version(parse(Version)), VersionList),
+    Min = search_gte(Version, VersionList),
+    Max = case find_next_version(parse(Version)) of
+              version_infinity ->
+                  find_max(VersionList);
+              Next ->
+                  search_lt(Next, VersionList)
+          end,
     maybe_impossible_constraint(Min,Max).
 
 maybe_impossible_constraint(not_found, _)->
@@ -218,16 +218,15 @@ find_max(#cookbook_version_mapper{versionList = VersionList}) ->
 find_max(VersionList) ->
     array:size(VersionList)-1.
 
-find_next_version({ V, {A,B} }) ->
-    {find_next_version(V), {A,B}};
-find_next_version(V) when is_integer(V) ->
-    {V+1, 0, 0};
-find_next_version({Major}) ->
-    {Major+1, 0, 0};
-find_next_version({Major, Minor}) ->
-    {Major, Minor+1, 0};
-find_next_version({Major, Minor, Patch}) ->
-    {Major, Minor, Patch+1}.
+%% Expects normalized versions (may need to parse first)
+find_next_version({ V, {_,_} }) when is_integer(V) ->
+    version_infinity;
+find_next_version({{Major, Minor}, {A,B}})
+  when is_integer(Major) andalso
+       is_integer(Minor) ->
+    {{Major+1, 0, 0}, {A,B}};
+find_next_version({{Major, Minor, _Patch}, {A,B}}) ->
+    {{Major, Minor+1, 0}, {A,B}}.
 
 %%%===================================================================
 %%% Internal functions

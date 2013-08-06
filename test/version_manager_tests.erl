@@ -193,14 +193,15 @@ constraint_map_test_() ->
                 end},
                {"PES (~>) constraints make sense",
                 fun() ->
-                        ?assertEqual(?NO_MATCH_CONSTRAINT, version_manager:constraint_to_range({{0,0,0}, pes}, V)),
                         ?assertEqual(lo({0,0,1}, {0,0,1}, V),
-                                     version_manager:constraint_to_range({{0,0}, pes}, V)),
+                                     version_manager:constraint_to_range({{0,0,0}, pes}, V)),
                         ?assertEqual(lo({0,0,1}, {0,2,0}, V),
+                                     version_manager:constraint_to_range({{0,0}, pes}, V)),
+                        ?assertEqual(lo({0,0,1}, {6,0,0}, V),
                                      version_manager:constraint_to_range({{0}, pes}, V)),
                         ?assertEqual(lo({0,0,1}, {0,0,1}, V),
                                      version_manager:constraint_to_range({{0,0,1}, pes}, V)),
-                        ?assertEqual(lo({0,1,0}, {0,1,3}, V),
+                        ?assertEqual(lo({0,1,0}, {0,2,0}, V),
                                      version_manager:constraint_to_range({{0,1}, pes}, V)),
                         ?assertEqual(lo({0,2,0}, {0,2,0}, V),
                                      version_manager:constraint_to_range({{0,2,0}, pes}, V)),
@@ -216,8 +217,7 @@ constraint_map_test_() ->
                                      version_manager:constraint_to_range({{6,0,0}, pes}, V)),
                         ?assertEqual(?NO_MATCH_CONSTRAINT,
                                      version_manager:constraint_to_range({{6,0,1}, pes}, V))
-                end}
-              ]
+                end}]
       end
      ]}.
 
@@ -301,14 +301,15 @@ constraint_map_string_test_() ->
                 end},
                {"PES (~>) constraints make sense",
                 fun() ->
-                        ?assertEqual(?NO_MATCH_CONSTRAINT, version_manager:constraint_to_range({"0.0.0", pes}, V)),
                         ?assertEqual(lo("0.0.1", "0.0.1", V),
+                                     version_manager:constraint_to_range({"0.0.0", pes}, V)),
+                        ?assertEqual(lo("0.0.1", "0.2.0", V),
                                      version_manager:constraint_to_range({"0.0", pes}, V)),
-%                        ?assertEqual(lo("0.0.1", "0.2.0", V),
-%                                     version_manager:constraint_to_range({"0", pes}, V)),
+                        ?assertEqual(lo("0.0.1", "6.0.0", V),
+                                     version_manager:constraint_to_range({"0", pes}, V)),
                         ?assertEqual(lo("0.0.1", "0.0.1", V),
                                      version_manager:constraint_to_range({"0.0.1", pes}, V)),
-                        ?assertEqual(lo("0.1.0", "0.1.3", V),
+                        ?assertEqual(lo("0.1.0", "0.2.0", V),
                                      version_manager:constraint_to_range({"0.1", pes}, V)),
                         ?assertEqual(lo("0.2.0", "0.2.0", V),
                                      version_manager:constraint_to_range({"0.2.0", pes}, V)),
@@ -324,7 +325,14 @@ constraint_map_string_test_() ->
                                      version_manager:constraint_to_range({"6.0.0", pes}, V)),
                         ?assertEqual(?NO_MATCH_CONSTRAINT,
                                      version_manager:constraint_to_range({"6.0.1", pes}, V))
+                end},
+               {"Other PES constraint (ad hoc)",
+                fun() ->
+                        V1 = version_manager:make(["0.0.1", "0.1", "1.0", "2.1.5", "2.2", "3.0"]),
+                        ?assertEqual(lo("2.1.5", "2.1.5", V1),
+                                      version_manager:constraint_to_range({"2.1.1", pes}, V1))
                 end}
+
               ]
       end
      ]}.
