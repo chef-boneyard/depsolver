@@ -38,15 +38,13 @@ all_test_() ->
       %% {?MODULE, first}, %% OK
       %% {?MODULE, second}, %% OK
       %% {?MODULE, third}, %% OK
-      %% {?MODULE, fail}, TODO
+      %% {?MODULE, fail}
       %% {?MODULE, conflicting_passing}, %% OK
       %% {?MODULE, circular_dependencies}, %% OK
       %% {?MODULE, conflicting_failing}, %% TODO
-      {?MODULE, pessimistic_major_minor_patch}
-      %% {?MODULE, pessimistic_major_minor},
-      %% {?MODULE, filter_packages_with_deps},
-      %% {?MODULE, filter_versions},
-      %% {?MODULE, missing},
+      %% {?MODULE, pessimistic_major_minor_patch}, %% OK
+      %% {?MODULE, pessimistic_major_minor} %% OK
+      {?MODULE, missing}
       %% {?MODULE, binary},
       %% {?MODULE, doesnt_exist},
       %% {?MODULE, not_new_enough},
@@ -176,7 +174,7 @@ fail() ->
 
     Ret = norm(depsolver_gecode:solve(Dom0, [{app1, "0.1"}])),
     %% We do this to make sure all errors can be formated.
-    _ = depsolver_gecode:format_error(Ret),
+%    _ = depsolver_gecode:format_error(Ret),
 
     Expected = norm({error,
                      [{[{[{app1,{{0,1},{[],[]}}}],
@@ -364,121 +362,28 @@ pessimistic_major_minor() ->
 
     ?assertEqual(Expected, Result).
 
-filter_packages_with_deps() ->
-    Packages = [{app1, [{"0.1", [{app2, "0.2"},
-                                 {app3, "0.2", '>='},
-                                 {app4, "0.2", '='}]},
-                        {"0.2", [{app4, "0.2"}]},
-                        {"0.3", [{app4, "0.2", '='}]}]},
-                {app2, [{"0.1", []},
-                        {"0.2",[{app3, "0.3"}]},
-                        {"0.3", []}]},
-                {app3, [{"0.1", []},
-                        {"0.2", []},
-                        {"0.3", []}]}],
-
-    %% constrain app1 and app3
-    Cons = [{app1, "0.1", '='},
-            {app3, "0.1", '>'}],
-    ?assertEqual({ok, [{app1, [{"0.1", [{app2, "0.2"},
-                                        {app3, "0.2", '>='},
-                                        {app4, "0.2", '='}]}]},
-                       {app2, [{"0.1", []},
-                               {"0.2",[{app3, "0.3"}]},
-                               {"0.3", []}]},
-                       {app3, [{"0.2", []},
-                               {"0.3", []}]}]},
-                 depsolver_gecode:filter_packages_with_deps(Packages, Cons)),
-    %% a constraint that doesn't matter
-    ?assertEqual({ok, Packages},
-                 depsolver_gecode:filter_packages_with_deps(Packages, [{appX, "4.0"}])),
-    %% no constraints
-    ?assertEqual({ok, Packages},
-                 depsolver_gecode:filter_packages_with_deps(Packages, [])),
-
-    %% remove everything constraints
-    ?assertEqual({ok, []},
-                 depsolver_gecode:filter_packages_with_deps(Packages,
-                                                            [{app1, "40.0"},
-                                                             {app2, "40.0"},
-                                                             {app3, "40.0"}])),
-
-    Ret = depsolver_gecode:filter_packages_with_deps(Packages, [{<<"ick">>, "1.0.0", '~~~~'}]),
-    Expect = {error, {invalid_constraints, [{<<"ick">>, {{1, 0, 0}, {[], []}}, '~~~~'}]}},
-    ?assertEqual(Expect, Ret).
-
-filter_versions() ->
-
-    Cons = [{app2, "2.1", '~>'},
-            {app3, "0.1.1", "0.1.5", between},
-            {app4, "5.0.0", gte},
-            {app5, "2.0.0", '>='},
-            app5],
-
-    Packages = [{app1, "0.1.0"},
-                {app1, "0.2"},
-                {app1, "0.2"},
-                {app1, "3.0"},
-                {app2, "0.0.1"},
-                {app2, "0.1"},
-                {app2, "1.0"},
-                {app2, "2.1.5"},
-                {app2, "2.2"},
-                {app2, "3.0"},
-                {app3, "0.1.0"},
-                {app3, "0.1.3"},
-                {app3, "2.0.0"},
-                {app3, "3.0.0"},
-                {app3, "4.0.0"},
-                {app4, "0.1.0"},
-                {app4, "0.3.0"},
-                {app4, "5.0.0"},
-                {app4, "6.0.0"},
-                {app5, "0.1.0"},
-                {app5, "0.3.0"},
-                {app5, "2.0.0"},
-                {app5, "6.0.0"}],
-
-    ?assertMatch({ok, [{app1,"0.1.0"},
-                       {app1,"0.2"},
-                       {app1,"0.2"},
-                       {app1,"3.0"},
-                       {app2,"2.1.5"},
-                       {app2,"2.2"},
-                       {app3,"0.1.3"},
-                       {app4,"5.0.0"},
-                       {app4,"6.0.0"},
-                       {app5,"2.0.0"},
-                       {app5,"6.0.0"}]},
-                 depsolver_gecode:filter_packages(Packages, Cons)),
-
-    Ret = depsolver_gecode:filter_packages(Packages,
-                                           [{"foo", "1.0.0", '~~~~'} | Cons]),
-    _ = depsolver_gecode:format_error(Ret),
-    ?assertMatch({error, {invalid_constraints, [{<<"foo">>,{{1,0,0},{[],[]}},'~~~~'}]}}, Ret).
-
-
 -spec missing() -> ok.
 missing() ->
-    Dom0 = depsolver_gecode:add_packages(depsolver_gecode:new_graph(), [{app1, [{"0.1", [{app2, "0.2"},
-                                                                                         {app3, "0.2", '>='},
-                                                                                         {app4, "0.2", '='}]},
-                                                                                {"0.2", [{app4, "0.2"}]},
-                                                                                {"0.3", [{app4, "0.2", '='}]}]},
-                                                                        {app2, [{"0.1", []},
-                                                                                {"0.2",[{app3, "0.3"}]},
-                                                                                {"0.3", []}]},
-                                                                        {app3, [{"0.1", []},
-                                                                                {"0.2", []},
-                                                                                {"0.3", []}]}]),
+    Dom0 = depsolver_gecode:add_packages(depsolver_gecode:new_graph(),
+                                         [{app1, [{"0.1", [{app2, "0.2"},
+                                                           {app3, "0.2", '>='},
+                                                           {app4, "0.2", '='}]},
+                                                  {"0.2", [{app4, "0.2"}]},
+                                                  {"0.3", [{app4, "0.2", '='}]}]},
+                                          {app2, [{"0.1", []},
+                                                  {"0.2", [{app3, "0.3"}]},
+                                                  {"0.3", []}]},
+                                          {app3, [{"0.1", []},
+                                                  {"0.2", []},
+                                                  {"0.3", []}]}]),
+
     Ret1 = depsolver_gecode:solve(Dom0, [{app4, "0.1"}, {app3, "0.1"}]),
-    _ = depsolver_gecode:format_error(Ret1),
+%    _ = depsolver_gecode:format_error(Ret1),
     ?assertMatch({error,{unreachable_package,app4}}, Ret1),
 
     Ret2 = depsolver_gecode:solve(Dom0, [{app1, "0.1"}]),
-    _ = depsolver_gecode:format_error(Ret2),
-    ?assertMatch({error,_},
-                 Ret2).
+%    _ = depsolver_gecode:format_error(Ret2),
+    ?assertMatch({error,_}, Ret2).
 
 missing_via_culprit_search() ->
     World = [{<<"app1">>,[{"1.1.0",[]}]},
@@ -690,5 +595,5 @@ strip_semver({A, {_, _}}) ->
 strip_semver(A) ->
     A.
 
-norm({ok, Constraints}) ->
-    {ok, lists:sort([ {A, strip_semver(V)} ||  {A, V} <- Constraints ])}.
+norm({R, Constraints}) ->
+    {R, lists:sort([ {A, strip_semver(V)} ||  {A, V} <- Constraints ])}.
