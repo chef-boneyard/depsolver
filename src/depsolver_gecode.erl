@@ -137,7 +137,6 @@
 -type ordered_constraints() :: [{pkg_name(), constraints()}].
 -type fail_info() :: {[pkg()], ordered_constraints()}.
 -type fail_detail() :: {fail, [fail_info()]} | {missing, pkg_name()}.
--type version_checker() :: fun((vsn()) -> fail_detail() | vsn()).
 
 %%============================================================================
 %% Macros
@@ -268,7 +267,7 @@ add_versions_for_package({PkgName, VersionConstraints, Iterator}, Acc) ->
 
 %% Constraints for each version
 generate_constraints(DepGraph, RawGoals, Problem) ->
-    %% The runlist package is a synthetic package 
+    %% The runlist package is a synthetic package
     add_constraints_for_package(?RUNLIST, [{ ?RUNLIST_VERSION, RawGoals }], Problem),
     gb_trees:map(fun(N,C) -> add_constraints_for_package(N,C,Problem) end, DepGraph).
 
@@ -287,15 +286,27 @@ add_constraint_element({DepPkgName, Version}, PkgIndex, VersionId, Problem) ->
 add_constraint_element({DepPkgName, DepPkgVersion, Type}, PkgIndex, VersionId, Problem) ->
     ?debugFmt("DP: ~p C: ~p ~p~n", [DepPkgName, DepPkgVersion, Type]),
     {DepPkgIndex, {Min,Max}} = version_manager:map_constraint(DepPkgName, {DepPkgVersion, Type}, Problem),
+    depselector:add_version_constraint(PkgIndex, VersionId, DepPkgIndex, Min, Max);
+add_constraint_element({DepPkgName, DepPkgVersion1, DepPkgVersion2, Type}, PkgIndex, VersionId, Problem) ->
+    ?debugFmt("DP: ~p C: ~p ~p ~p~n", [DepPkgName, DepPkgVersion1, DepPkgVersion2, Type]),
+    {DepPkgIndex, {Min,Max}} =
+        version_manager:map_constraint(DepPkgName, {DepPkgVersion1, DepPkgVersion2, Type}, Problem),
+    depselector:add_version_constraint(PkgIndex, VersionId, DepPkgIndex, Min, Max);
+add_constraint_element(DepPkgName, PkgIndex, VersionId, Problem) when not is_tuple(DepPkgName) ->
+    ?debugFmt("DP: ~p C: ~p ~n", [DepPkgName, any]),
+    {DepPkgIndex, {Min,Max}} =
+        version_manager:map_constraint(DepPkgName, any, Problem),
     depselector:add_version_constraint(PkgIndex, VersionId, DepPkgIndex, Min, Max).
 
 extract_constraints({ok, {solution, Results}} = Solution, Problem) ->
     ?debugFmt("~p~n",[Solution]),
-    {{state, _}, {disabled, _Disabled_Count}, {packages, PackageVersions}} = Results,
-    %% The runlist is a synthetic package, and should be filtered out 
-    [{0,0,0} | PackageVersionsReal ] = PackageVersions,
-    {ok, [version_manager:unmap_constraint({PackageId, VersionId}, Problem) ||
-             {PackageId, _DisabledState, VersionId} <- PackageVersionsReal] }.
+    {{state, _}, {disabled, _Disabled_Count}, {packages, PackageVersionIds}} = Results,
+    %% The runlist is a synthetic package, and should be filtered out
+    [{0,0,0} | PackageVersionIdsReal ] = PackageVersionIds,
+    PackageList = [version_manager:unmap_constraint({PackageId, VersionId}, Problem) ||
+                      {PackageId, _DisabledState, VersionId} <- PackageVersionIdsReal],
+    ?debugFmt("R ~p~n", [PackageList]),
+    {ok, PackageList}.
 
 %% Parse a string version into a tuple based version
 -spec parse_version(raw_vsn() | vsn()) -> vsn().
@@ -306,53 +317,6 @@ parse_version(RawVsn)
 parse_version(Vsn)
   when erlang:is_tuple(Vsn) ->
     Vsn.
-
-%% @doc given a list of package name version pairs, and a list of constraints
-%% return every member of that list that matches all constraints.
--spec filter_packages([{pkg_name(), raw_vsn()}], [raw_constraint()]) ->
-                             {ok, [{pkg_name(), raw_vsn()}]}
-                                 | {error, Reason::term()}.
-filter_packages(PVPairs, RawConstraints) ->
-    Constraints = [fix_con(Constraint) || Constraint <- RawConstraints],
-    case check_constraints(Constraints) of
-        ok ->
-            {ok, [PVPair || PVPair <- PVPairs,
-                            filter_pvpair_by_constraint(fix_con(PVPair), Constraints)]};
-        Error ->
-            Error
-    end.
-
-%% @doc given a list of packages as can be passed to `add_packages' where each
-%% package consists of the name and a list of versions with dependencies, remove
-%% package/version pairs that don't satisfy one of the constraints in
-%% `RawConstraints'. The return value is a list of dependency sets (same shape
-%% as `packagesWithDeps'.
--spec filter_packages_with_deps([dependency_set()], [raw_constraint()]) ->
-                                       {ok, [dependency_set()]} |
-                                       {error, Reason::term()}.
-filter_packages_with_deps(PackagesWithDeps, RawConstraints) ->
-    Constraints = [fix_con(Constraint) || Constraint <- RawConstraints],
-    case check_constraints(Constraints) of
-        ok ->
-            MaybeWithEmpties =
-                [ select_versions_by_constraint(PkgVersions, Constraints)
-                  || PkgVersions <- PackagesWithDeps ],
-            %% remove package if it doesn't have any versions
-            {ok, [ {Pkg, Versions} || {Pkg, Versions} <- MaybeWithEmpties,
-                                      Versions =/= [] ]};
-        Error ->
-            Error
-    end.
-
-%% Given a dependency_set() and constraints, return a new dependency set
-%% containing only those versions that meet the constraints. May return an empty
-%% list of versions.
-select_versions_by_constraint({Pkg, Versions}, Constraints) ->
-    KeepVersions = [ {Ver, Deps}
-                     || {Ver, Deps} <- Versions,
-                        filter_pvpair_by_constraint(fix_con({Pkg, Ver}),
-                                                    Constraints) ],
-    {Pkg, KeepVersions}.
 
 %% @doc Produce a full error message for a given error condition.  This includes
 %% details of the paths taken to resolve the dependencies and shows which dependencies
@@ -392,48 +356,6 @@ format_version(Version) ->
 format_constraint(Constraint) ->
     depsolver_culprit:format_constraint(Constraint).
 
-%%====================================================================
-%% Internal Functions
-%%====================================================================
--spec check_constraints(constraints()) ->
-                               ok | {error, {invalid_constraints, [term()]}}.
-check_constraints(Constraints) ->
-    PossibleInvalids =
-        lists:foldl(fun(Constraint, InvalidConstraints) ->
-                            case is_valid_constraint(Constraint) of
-                                true ->
-                                    InvalidConstraints;
-                                false ->
-                                [Constraint | InvalidConstraints]
-                            end
-                    end, [], Constraints),
-    case PossibleInvalids of
-        [] ->
-            ok;
-        _ ->
-        {error, {invalid_constraints, PossibleInvalids}}
-    end.
-
-
--spec filter_pvpair_by_constraint({pkg_name(), vsn()}, [constraint()]) ->
-                                         boolean().
-filter_pvpair_by_constraint(PVPair, Constraints) ->
-    lists:all(fun(Constraint) ->
-                      filter_package(PVPair, Constraint)
-              end, Constraints).
-
--spec filter_package({pkg_name(), vsn()}, constraint()) ->
-                            boolean().
-filter_package({PkgName, Vsn}, C = {PkgName, _}) ->
-    is_version_within_constraint(Vsn, C);
-filter_package({PkgName, Vsn}, C = {PkgName, _, _}) ->
-    is_version_within_constraint(Vsn, C);
-filter_package({PkgName, Vsn}, C = {PkgName, _, _, _}) ->
-    is_version_within_constraint(Vsn, C);
-filter_package(_, _) ->
-    %% If its not explicitly excluded its included
-    true.
-
 %% @doc
 %% fix the package name. If its a list turn it into a binary otherwise leave it as an atom
 fix_pkg(Pkg) when is_list(Pkg) ->
@@ -466,37 +388,3 @@ join_constraints(NewConstraints, ExistingConstraints) ->
     FilteredNewConstraints = [NC || NC <- NewConstraints,
                                     not sets:is_element(NC, ECSet)],
     ExistingConstraints ++ FilteredNewConstraints.
-
-
-
--spec is_valid_constraint(constraint()) -> boolean().
-is_valid_constraint(Pkg) when is_atom(Pkg) orelse is_binary(Pkg) ->
-    true;
-is_valid_constraint({_Pkg, Vsn}) when is_tuple(Vsn) ->
-    true;
-is_valid_constraint({_Pkg, Vsn, '='}) when is_tuple(Vsn) ->
-    true;
-is_valid_constraint({_Pkg, _LVsn, gte}) ->
-    true;
-is_valid_constraint({_Pkg, _LVsn, '>='}) ->
-    true;
-is_valid_constraint({_Pkg, _LVsn, lte}) ->
-    true;
-is_valid_constraint({_Pkg, _LVsn, '<='}) ->
-    true;
-is_valid_constraint({_Pkg, _LVsn, gt}) ->
-    true;
-is_valid_constraint({_Pkg, _LVsn, '>'}) ->
-    true;
-is_valid_constraint({_Pkg, _LVsn, lt}) ->
-    true;
-is_valid_constraint({_Pkg, _LVsn, '<'}) ->
-    true;
-is_valid_constraint({_Pkg, _LVsn, pes}) ->
-    true;
-is_valid_constraint({_Pkg, _LVsn, '~>'}) ->
-    true;
-is_valid_constraint({_Pkg, _LVsn1, _LVsn2, between}) ->
-    true;
-is_valid_constraint(_InvalidConstraint) ->
-    false.
