@@ -62,7 +62,7 @@ init(Executable) ->
     end.
 
 new_problem_with_debug(ID, NumPackages) ->
-    gen_server:call(?SERVER, {send, ["NEW", ID, NumPackages, 1, 1]}, ?TIMEOUT).
+    gen_server:call(?SERVER, {send, "NEW", [ID, NumPackages, 1, 1]}, ?TIMEOUT).
 
 new_problem(ID, NumPackages) ->
     gen_server:call(?SERVER, {send, "NEW", [ID, NumPackages, 0, 0]}, ?TIMEOUT).
@@ -120,13 +120,14 @@ terminate(_Reason, #state{port = Port} = _State) ->
 send_and_get(Command, Args, #state{port = Port} = State) ->
     Args0 = [ safe_int_to_list(X) || X <- Args ],
     C = string:join([Command | Args0], " ") ,
-    % io:fwrite("SENDING: ~p~n", [C]),
     port_command(Port, C),
     port_command(Port, "\n"),
     case get_response(Port) of
         {error, timeout} ->
-     %       io:fwrite("Timeout waiting for port~n"),
-            {stop, timeout, State};
+            % If at any point we receive a port timeout
+            % we are in an invalid state and must terminate
+            % the port.
+            {stop, port_timeout, State};
         Response ->
             {reply, Response, State}
     end.
