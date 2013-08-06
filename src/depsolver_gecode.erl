@@ -290,30 +290,47 @@ add_constraint_element({DepPkgName, Version}, PkgIndex, VersionId, Problem) ->
     add_constraint_element({DepPkgName, Version, eq}, PkgIndex, VersionId, Problem);
 add_constraint_element({DepPkgName, DepPkgVersion, Type}, PkgIndex, VersionId, Problem) ->
     ?debugFmt("DP: ~p C: ~p ~p~n", [DepPkgName, DepPkgVersion, Type]),
-    {DepPkgIndex, {Min,Max}} = version_manager:map_constraint(DepPkgName, {DepPkgVersion, Type}, Problem),
-    depselector:add_version_constraint(PkgIndex, VersionId, DepPkgIndex, Min, Max);
+    add_constraint_element_helper(DepPkgName, {DepPkgVersion, Type}, PkgIndex, VersionId, Problem);
 add_constraint_element({DepPkgName, DepPkgVersion1, DepPkgVersion2, Type}, PkgIndex, VersionId, Problem) ->
     ?debugFmt("DP: ~p C: ~p ~p ~p~n", [DepPkgName, DepPkgVersion1, DepPkgVersion2, Type]),
-    {DepPkgIndex, {Min,Max}} =
-        version_manager:map_constraint(DepPkgName, {DepPkgVersion1, DepPkgVersion2, Type}, Problem),
-    depselector:add_version_constraint(PkgIndex, VersionId, DepPkgIndex, Min, Max);
+    add_constraint_element_helper(DepPkgName, {DepPkgVersion1, DepPkgVersion2, Type},
+                                  PkgIndex, VersionId, Problem);
 add_constraint_element(DepPkgName, PkgIndex, VersionId, Problem) when not is_tuple(DepPkgName) ->
     ?debugFmt("DP: ~p C: ~p ~n", [DepPkgName, any]),
-    {DepPkgIndex, {Min,Max}} =
-        version_manager:map_constraint(DepPkgName, any, Problem),
-    depselector:add_version_constraint(PkgIndex, VersionId, DepPkgIndex, Min, Max).
+    add_constraint_element_helper(DepPkgName, any, PkgIndex, VersionId, Problem).
 
-extract_constraints({solution, none}, _Problem) ->
-    {ok, []};
-extract_constraints({solution, Results} = _Solution, Problem) ->
-    ?debugFmt("~p~n",[_Solution]),
+add_constraint_element_helper(DepPkgName, Constraint, PkgIndex, VersionId, Problem) ->
+    case version_manager:map_constraint(DepPkgName, Constraint, Problem) of
+        {DepPkgIndex, {Min,Max}} ->
+            version_manager:map_constraint(DepPkgName, Constraint, Problem),
+            depselector:add_version_constraint(PkgIndex, VersionId, DepPkgIndex, Min, Max);
+        no_matching_package ->
+            throw( {error, {unreachable_package, DepPkgName}} )
+    end.
+
+extract_constraints({ok, {solution,
+                          {{state, invalid},
+                           {disabled, _Disabled_Count},
+                           {packages, PackageVersionIds}} = Results} = Solution},
+                     Problem) ->
+    ?debugFmt("~p~n",[Solution]),
     {{state, _}, {disabled, _Disabled_Count}, {packages, PackageVersionIds}} = Results,
+    PackageList = unmap_packed_solution(PackageVersionIds, Problem),
+    {error, PackageList};
+extract_constraints({ok, {solution, Results}} = Solution, Problem) ->
+    ?debugFmt("~p~n",[Solution]),
+    {{state, _}, {disabled, _Disabled_Count}, {packages, PackageVersionIds}} = Results,
+    PackageList = unmap_packed_solution(PackageVersionIds, Problem),
+    {ok, PackageList}.
+
+
+unmap_packed_solution(PackageVersionIds, Problem) ->
     %% The runlist is a synthetic package, and should be filtered out
     [{0,0,0} | PackageVersionIdsReal ] = PackageVersionIds,
     PackageList = [version_manager:unmap_constraint({PackageId, VersionId}, Problem) ||
                       {PackageId, _DisabledState, VersionId} <- PackageVersionIdsReal],
     ?debugFmt("R ~p~n", [PackageList]),
-    {ok, PackageList}.
+    PackageList.
 
 %% Parse a string version into a tuple based version
 -spec parse_version(raw_vsn() | vsn()) -> vsn().
