@@ -22,6 +22,8 @@
 %%
 -module(depselector).
 
+-include_lib("eunit/include/eunit.hrl").
+
 -behaviour(gen_server).
 
 %% API
@@ -120,14 +122,14 @@ terminate(_Reason, #state{port = Port} = _State) ->
 send_and_get(Command, Args, #state{port = Port} = State) ->
     Args0 = [ safe_int_to_list(X) || X <- Args ],
     C = string:join([Command | Args0], " ") ,
+    ?debugFmt("SENDING: ~p~n", [C]),
     port_command(Port, C),
     port_command(Port, "\n"),
     case get_response(Port) of
         {error, timeout} ->
-            % If at any point we receive a port timeout
-            % we are in an invalid state and must terminate
-            % the port.
-            {stop, port_timeout, State};
+            {stop, timeout, State};
+        {dataerror, Message} ->
+            {stop, {dataerror, Message}, State};
         Response ->
             {reply, Response, State}
     end.
