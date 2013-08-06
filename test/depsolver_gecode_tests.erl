@@ -35,14 +35,14 @@ all_test_() ->
     end,
     fun(_) -> application:stop(depsolver) end,
     [
-     {?MODULE, first},
-     {?MODULE, second},
+%%     {?MODULE, first}, %% OK
+%%     {?MODULE, second}, %% OK
      {?MODULE, third}
       %% {?MODULE, fail},
-      %% {?MODULE, conflicting_passing},
-      %% {?MODULE, circular_dependencies},
-      %% {?MODULE, conflicting_failing},
-      %% {?MODULE, pessimistic_major_minor_patch},
+%%     {?MODULE, conflicting_passing},
+%%     {?MODULE, circular_dependencies},
+     %% {?MODULE, conflicting_failing},
+%%     {?MODULE, pessimistic_major_minor_patch}
       %% {?MODULE, pessimistic_major_minor},
       %% {?MODULE, filter_packages_with_deps},
       %% {?MODULE, filter_versions},
@@ -118,34 +118,27 @@ third() ->
     Pkg3Deps = [{app5, "2.0.0", '>='}],
     Pkg4Deps = [app5],
 
-    Dom0 = depsolver_gecode:add_packages(depsolver_gecode:new_graph(), [{app1, [{"0.1.0", Pkg1Deps},
-                                              {"0.2", Pkg1Deps},
-                                              {"3.0", Pkg1Deps}]},
-                                      {app2, [{"0.0.1", Pkg2Deps},
-                                              {"0.1", Pkg2Deps},
-                                              {"1.0", Pkg2Deps},
-                                              {"3.0", Pkg2Deps}]},
-                                      {app3, [{"0.1.0", Pkg3Deps},
-                                              {"0.1.3", Pkg3Deps},
-                                              {"2.0.0", Pkg3Deps},
-                                              {"3.0.0", Pkg3Deps},
-                                              {"4.0.0", Pkg3Deps}]},
-                                      {app4, [{"0.1.0", Pkg4Deps},
-                                              {"0.3.0", Pkg4Deps},
-                                              {"5.0.0", Pkg4Deps},
-                                              {"6.0.0", Pkg4Deps}]},
-                                      {app5, [{"0.1.0", []},
-                                              {"0.3.0", []},
-                                              {"2.0.0", []},
-                                              {"6.0.0", []}]}]),
-
-    ExpRes = norm({ok, [{app5,{{6,0,0},{[],[]}}},
-                       {app3,{{0,1,3},{[],[]}}},
-                       {app4,{{6,0,0},{[],[]}}},
-                       {app2,{{3,0},{[],[]}}},
-                       {app1,{{3,0},{[],[]}}}]}),
-
-    ?assertMatch(ExpRes, norm(depsolver_gecode:solve(Dom0, [{app1, "3.0"}]))),
+    Dom0 = depsolver_gecode:add_packages(depsolver_gecode:new_graph(),
+                                         [{app1, [{"0.1.0", Pkg1Deps},
+                                                  {"0.2", Pkg1Deps},
+                                                  {"3.0", Pkg1Deps}]},
+                                          {app2, [{"0.0.1", Pkg2Deps},
+                                                  {"0.1", Pkg2Deps},
+                                                  {"1.0", Pkg2Deps},
+                                                  {"3.0", Pkg2Deps}]},
+                                          {app3, [{"0.1.0", Pkg3Deps},
+                                                  {"0.1.3", Pkg3Deps},
+                                                  {"2.0.0", Pkg3Deps},
+                                                  {"3.0.0", Pkg3Deps},
+                                                  {"4.0.0", Pkg3Deps}]},
+                                          {app4, [{"0.1.0", Pkg4Deps},
+                                                  {"0.3.0", Pkg4Deps},
+                                                  {"5.0.0", Pkg4Deps},
+                                                  {"6.0.0", Pkg4Deps}]},
+                                          {app5, [{"0.1.0", []},
+                                                  {"0.3.0", []},
+                                                  {"2.0.0", []},
+                                                  {"6.0.0", []}]}]),
 
     ExpRes = norm({ok, [{app5,{{6,0,0},{[],[]}}},
                         {app3,{{0,1,3},{[],[]}}},
@@ -153,7 +146,20 @@ third() ->
                         {app2,{{3,0},{[],[]}}},
                         {app1,{{3,0},{[],[]}}}]}),
 
-    ?assertMatch(ExpRes, depsolver_gecode:solve(Dom0, [app1])).
+    Result = norm(?debugVal(depsolver_gecode:solve(Dom0, [{app1, "3.0"}]))),
+    ?debugVal({ExpRes, Result}),
+
+    ?assertEqual(ExpRes, Result),
+
+    ExpRes2 = norm({ok, [{app5,{{6,0,0},{[],[]}}},
+                         {app3,{{0,1,3},{[],[]}}},
+                         {app4,{{6,0,0},{[],[]}}},
+                         {app2,{{3,0},{[],[]}}},
+                         {app1,{{3,0},{[],[]}}}]}),
+
+    Result2 =depsolver_gecode:solve(Dom0, [app1]),
+
+    ?assertEqual(ExpRes2, Result2).
 
 fail() ->
     Dom0 = depsolver_gecode:add_packages(depsolver_gecode:new_graph(),
@@ -638,11 +644,11 @@ missing2() ->
 
      %% Since latest version of app2 is unreachable due to missing dep, we
      %% expect app1 0.4 with app2 0.2.
-	 %% Current implementation fails on first missing package.  This is a
-	 %% compromise solution until depsolver can be enhanced to handle this
-	 %% better.
+         %% Current implementation fails on first missing package.  This is a
+         %% compromise solution until depsolver can be enhanced to handle this
+         %% better.
      ?_assertEqual({ok,[{app2,{{0,2},{[],[]}}},{app1,{{0,4},{[],[]}}}]},
-	 %?_assertEqual({error, {unreachable_package, noapp}},
+         %?_assertEqual({error, {unreachable_package, noapp}},
                    depsolver_gecode:solve(Dom0, [{app1, "0.4"}])),
 
      %% should end up with app1 0.3, app2 0.4
@@ -658,5 +664,4 @@ equal_bin_string(Expected, Got) ->
 
 
 norm({ok, Constraints}) ->
-    {ok, lists:sort([ V ||  {V, {_,_}} <- Constraints ])}.
-
+    {ok, lists:sort([ {A, V} ||  {A, {V,_}} <- Constraints ])}.
