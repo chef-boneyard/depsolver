@@ -235,13 +235,17 @@ add_package_version(State, Pkg, Vsn) ->
 %% ``` depsolver:solve(State, [{app1, "0.1", '>='}]).'''
 -spec solve( t(),[constraint()]) -> {ok, [pkg()]} | {error, term()}.
 solve({?MODULE, DepGraph0}, RawGoals) when erlang:length(RawGoals) > 0 ->
-    ?debugVal(depselector:new_problem_with_debug("TEST", gb_trees:size(DepGraph0) + 1)),
-    %depselector:new_problem_with_debug("TEST", gb_trees:size(DepGraph0) + 1),
-    Problem = generate_versions(DepGraph0),
-    ?debugFmt("~p~n", [Problem]),
-    generate_constraints(DepGraph0, RawGoals, Problem),
-    Solution = depselector:solve(),
-    extract_constraints(Solution, Problem).
+    try
+        ?debugVal(depselector:new_problem_with_debug("TEST", gb_trees:size(DepGraph0) + 1)),
+        Problem = generate_versions(DepGraph0),
+        ?debugFmt("~p~n", [Problem]),
+        generate_constraints(DepGraph0, RawGoals, Problem),
+        Solution = depselector:solve(),
+        extract_constraints(Solution, Problem)
+    catch
+        throw:{unreachable_package, Name} ->
+            {error, {unreachable_package, Name}}
+    end.
 
 %% Instantiate versions
 generate_versions(DepGraph0) ->
@@ -305,7 +309,7 @@ add_constraint_element_helper(DepPkgName, Constraint, PkgIndex, VersionId, Probl
             version_manager:map_constraint(DepPkgName, Constraint, Problem),
             depselector:add_version_constraint(PkgIndex, VersionId, DepPkgIndex, Min, Max);
         no_matching_package ->
-            throw( {error, {unreachable_package, DepPkgName}} )
+            throw( {unreachable_package, DepPkgName} )
     end.
 
 extract_constraints({ok, {solution,
