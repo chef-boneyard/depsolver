@@ -40,13 +40,13 @@ VersionProblem * dep_selector_from_stream(std::istream & f) {
 
     VersionProblem *problem = new VersionProblem(packageCount, dumpStats, debug, guid.c_str());
     while (true) {
-      if ((f.rdstate() & std::istream::failbit) > 0) {
+      f >> cmd;
+
+      if ((f.rdstate() & (std::istream::failbit | std::istream::eofbit) ) > 0) {
         cout << "ERROR" << endl << "input failure" << endl;
         cout.flush();
         return problem;
       }
-
-      f >> cmd;
 
       if (cmd.compare("P") == 0) {
         int minVersion, maxVersion, currentVersion;

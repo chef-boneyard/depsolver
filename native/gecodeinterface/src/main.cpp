@@ -30,7 +30,7 @@ int main(int argc, char * argv[])
 
   while (1) {
     cin >> cmd;
-    if ((cin.rdstate() & std::istream::failbit) > 0) {
+    if ((cin.rdstate() & (std::istream::failbit | std::istream::eofbit) ) > 0) {
       return 0;
     }
     // WE'll possibly want to add some commands to log capture, etc.
