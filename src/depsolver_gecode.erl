@@ -1,5 +1,5 @@
 %% -*- erlang-indent-level: 4; indent-tabs-mode: nil; fill-column: 100 -*-
-%% ex: ts=4 sx=4 et
+%% ex: ts=4 sw=4 et
 %%
 %% Copyright 2012 Opscode, Inc. All Rights Reserved.
 %%
@@ -233,9 +233,10 @@ add_package_version(State, Pkg, Vsn) ->
 %% and versions that satisfy all constraints. If no solution can be found then
 %% an exception is thrown.
 %% ``` depsolver:solve(State, [{app1, "0.1", '>='}]).'''
--spec solve(t(),[constraint()]) -> {ok, [pkg()]} | {error, term()}.
+-spec solve( t(),[constraint()]) -> {ok, [pkg()]} | {error, term()}.
 solve({?MODULE, DepGraph0}, RawGoals) when erlang:length(RawGoals) > 0 ->
     ?debugVal(depselector:new_problem_with_debug("TEST", gb_trees:size(DepGraph0) + 1)),
+    %depselector:new_problem_with_debug("TEST", gb_trees:size(DepGraph0) + 1),
     Problem = generate_versions(DepGraph0),
     ?debugFmt("~p~n", [Problem]),
     generate_constraints(DepGraph0, RawGoals, Problem),
@@ -247,8 +248,7 @@ generate_versions(DepGraph0) ->
     Versions0 = version_manager:new(),
     %% the runlist is treated as a virtual package.
     Versions1 = version_manager:add_package(?RUNLIST, [?RUNLIST_VERSION], Versions0),
-    {ok, {package_id, Id}} = depselector:add_package(0,0,0),
-    ?debugVal(Id),
+    depselector:add_package(0,0,0),
     depselector:mark_package_required(0),
 
     %% Add all the other packages
@@ -303,8 +303,10 @@ add_constraint_element(DepPkgName, PkgIndex, VersionId, Problem) when not is_tup
         version_manager:map_constraint(DepPkgName, any, Problem),
     depselector:add_version_constraint(PkgIndex, VersionId, DepPkgIndex, Min, Max).
 
-extract_constraints({ok, {solution, Results}} = Solution, Problem) ->
-    ?debugFmt("~p~n",[Solution]),
+extract_constraints({solution, none}, _Problem) ->
+    {ok, []};
+extract_constraints({solution, Results} = _Solution, Problem) ->
+    ?debugFmt("~p~n",[_Solution]),
     {{state, _}, {disabled, _Disabled_Count}, {packages, PackageVersionIds}} = Results,
     %% The runlist is a synthetic package, and should be filtered out
     [{0,0,0} | PackageVersionIdsReal ] = PackageVersionIds,
