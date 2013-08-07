@@ -40,7 +40,7 @@ VersionProblem * dep_selector_from_stream(std::istream & f) {
       f >> cmd;
       if ((f.rdstate() & (std::istream::failbit | std::istream::eofbit) ) > 0) {
         // If input fails, the best we can do is terminate, so that our
-        // client can clean up immediately. 
+        // client can clean up immediately.
         delete problem;
         exit(128);
       }
@@ -71,6 +71,7 @@ VersionProblem * dep_selector_from_stream(std::istream & f) {
         f >> packageId >> weight;
         problem->MarkPackagePreferredToBeAtLatest(packageId, weight);
       } else if (cmd.compare("X") == 0) {
+        VersionProblem * ret;
         if (problem->Size() == problem->PackageCount()) {
           VersionProblem * solution = VersionProblem::Solve(problem);
           if (solution) {
@@ -78,10 +79,14 @@ VersionProblem * dep_selector_from_stream(std::istream & f) {
           } else {
             cout << "NOSOL" << endl;
           }
+          // Don't need the original problem anymore.
+          delete problem;
+          ret = solution;
         } else {
           cout << "ERROR" << endl << "package count did not match expected." << endl;
+          ret = problem;
         }
-        return problem;
+        return ret;
       } else if (cmd.compare("0") == 0) {
         // This means that  our input is trying to make sure we're
         // reset and ensuring we're not expecting furtherinputs for any
