@@ -79,11 +79,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 %% Public Api
--export([format_error/1,
-         format_roots/1,
-         format_culprits/1,
-         format_constraint/1,
-         format_version/1,
+-export([
          new_graph/0,
          solve/2,
          add_packages/2,
@@ -229,14 +225,22 @@ add_package_version({?MODULE, Dom0}, RawPkg, RawVsn, RawPkgConstraints) ->
 add_package_version(State, Pkg, Vsn) ->
     add_package_version(State, Pkg, Vsn, []).
 
-%% @doc Given a set of goals (in the form of constrains) find a set of packages
-%% and versions that satisfy all constraints. If no solution can be found then
-%% an exception is thrown.
-%% ``` depsolver:solve(State, [{app1, "0.1", '>='}]).'''
+
 -spec solve(t(),[constraint()]) -> {ok, [pkg()]} | {error, term()}.
 solve({?MODULE, DepGraph0}, RawGoals) when erlang:length(RawGoals) > 0 ->
+    primitive_solve({?MODULE, DepGraph0}, RawGoals).
+
+
+%% @doc Given a set of goals (in the form of constrains) find a set of packages
+%% and versions that satisfy all constraints. If no solution can be found then
+%% an exception is thrown. This is basically the root solver of the system, the main difference
+%% from the exported solve/2 function is the fact that this does not do the
+%% culprit search.
+%% ``` depsolver:primitive_solve(State, [{app1, "0.1", '>='}]).'''
+-spec primitive_solve(t(),[constraint()]) -> {ok, [pkg()]} | {error, term()}.
+primitive_solve({?MODULE, DepGraph0}, RawGoals) when erlang:length(RawGoals) > 0 ->
     try
-        ?debugVal(depselector:new_problem_with_debug("TEST", gb_trees:size(DepGraph0) + 1)),
+        ?debugVal(depselector:new_problem("TEST", gb_trees:size(DepGraph0) + 1)),
         Problem = generate_versions(DepGraph0),
         ?debugFmt("~p~n", [Problem]),
         generate_constraints(DepGraph0, RawGoals, Problem),
@@ -246,6 +250,9 @@ solve({?MODULE, DepGraph0}, RawGoals) when erlang:length(RawGoals) > 0 ->
         throw:{unreachable_package, Name} ->
             {error, {unreachable_package, Name}}
     end.
+
+
+
 
 %% Instantiate versions
 generate_versions(DepGraph0) ->
@@ -346,44 +353,6 @@ parse_version(RawVsn)
 parse_version(Vsn)
   when erlang:is_tuple(Vsn) ->
     Vsn.
-
-%% @doc Produce a full error message for a given error condition.  This includes
-%% details of the paths taken to resolve the dependencies and shows which dependencies
-%% could not be satisfied
--spec format_error({error, {unreachable_package, list()} |
-                           {invalid_constraints, [constraint()]} |
-                           list()}) -> iolist().
-format_error(Error) ->
-    depsolver_culprit:format_error(Error).
-
-%% @doc Return a formatted list of roots of the dependency trees which
-%% could not be satisified. These may also have versions attached.
-%% Example:
-%%
-%%    ```(foo = 1.2.0), bar```
-%%
--spec format_roots([constraints()]) -> iolist().
-format_roots(Roots) ->
-    depsolver_culprit:format_roots(Roots).
-
-
-%% @doc Return a formatted list of the culprit depenedencies which led to
-%% the dependencies not being satisfied. Example:
-%%
-%%     ```(foo = 1.2.0) -> (bar > 2.0.0)```
--spec format_culprits([{[constraint()], [constraint()]}]) -> iolist().
-format_culprits(Culprits) ->
-    depsolver_culprit:format_culprits(Culprits).
-
-%% @doc A formatted version tuple
--spec format_version(vsn()) -> iolist().
-format_version(Version) ->
-    depsolver_culprit:format_version(Version).
-
-%% @doc A formatted constraint tuple
--spec format_constraint(constraint()) -> iolist().
-format_constraint(Constraint) ->
-    depsolver_culprit:format_constraint(Constraint).
 
 %% @doc
 %% fix the package name. If its a list turn it into a binary otherwise leave it as an atom
