@@ -6,3 +6,4 @@
 deps/*
 priv/solver
 native/geocodeinterface/lib
+/machine_info
