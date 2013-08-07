@@ -21,7 +21,6 @@
 %%
 %%
 -module(depselector).
-
 -include_lib("eunit/include/eunit.hrl").
 
 -behaviour(gen_server).
@@ -31,13 +30,12 @@
          new_problem/2,
          new_problem_with_debug/2,
          add_package/3,
-         add_version_constraint/3,
          add_version_constraint/5,
          mark_package_required/1,
          mark_package_suspicious/1,
          mark_package_latest/2,
          solve/0]).
-
+-export([wait_for_reply/2]).
 -export([init/1,
          handle_call/3,
          handle_cast/2,
@@ -46,56 +44,65 @@
          code_change/3]).
 
 -define(SERVER, ?MODULE).
--define(TIMEOUT, 5000).
+-define(TIMEOUT,5000).
 -define(PORT_TIMEOUT, 4000).
+-define(RESET_SEQUENCE, "0\n0\n0\n0\n0\n0\nRESET\n").
 
--record(state, { port }).
+-record(state, { port, problem, data }).
 
 start_link(Executable) ->
     gen_server:start_link({local, ?SERVER}, depselector, Executable, []).
 
 init(Executable) ->
     process_flag(trap_exit, true),
-    case open_port({spawn, Executable}, [stream, {line, 1024}]) of
+    case open_port({spawn_executable, Executable}, [exit_status, use_stdio, stream, {line, 1024}]) of
         {error, Reason} ->
             {error, Reason};
         Port ->
             {ok, #state{port = Port}}
     end.
 
+%% TODO for compatibity with pooler, these will need to be modified to send to the provided pid
 new_problem_with_debug(ID, NumPackages) ->
-    gen_server:call(?SERVER, {send, "NEW", [ID, NumPackages, 1, 1]}, ?TIMEOUT).
+    gen_server:call(?SERVER, {new_problem, [ID, NumPackages, 1, 1]}, ?TIMEOUT).
 
 new_problem(ID, NumPackages) ->
-    gen_server:call(?SERVER, {send, "NEW", [ID, NumPackages, 0, 0]}, ?TIMEOUT).
+    gen_server:call(?SERVER, {new_problem, [ID, NumPackages, 0, 0]}, ?TIMEOUT).
 
-% TODO we can simplify here and our io interface
-% by combinig this with suspicious/required/latest, all in one shot
--spec add_package(integer(), integer(), integer()) -> {package_id, non_neg_integer()}.
 add_package(MinVer, MaxVer, CurVer) ->
-    gen_server:call(?SERVER, {send, "P", [MinVer, MaxVer, CurVer]}, ?TIMEOUT).
-
-add_version_constraint(PackageId, Version, DepPackageId) ->
-    add_version_constraint(PackageId, Version, DepPackageId, -2, -2),
-    mark_package_suspicious(PackageId).
+    gen_server:call(?SERVER, {update, add_package, [MinVer, MaxVer, CurVer]}, ?TIMEOUT).
 
 add_version_constraint(PackageId, Version, DepPackageId, MinVer, MaxVer) ->
-    gen_server:call(?SERVER, {send, "C", [PackageId, Version, DepPackageId, MinVer, MaxVer]}, ?TIMEOUT).
+    gen_server:call(?SERVER, {update, add_constraint, [PackageId, Version, DepPackageId, MinVer, MaxVer]}, ?TIMEOUT).
 
 mark_package_required(PackageId) ->
-    gen_server:call(?SERVER, {send, "R", [PackageId]}, ?TIMEOUT).
+    gen_server:call(?SERVER, {update, mark_required, [PackageId]}, ?TIMEOUT).
 
 mark_package_suspicious(PackageId) ->
-    gen_server:call(?SERVER, {send, "S", [PackageId]}, ?TIMEOUT).
+    gen_server:call(?SERVER, {update, mark_suspicious, [PackageId]}, ?TIMEOUT).
 
 mark_package_latest(PackageId, Weight) ->
-    gen_server:call(?SERVER, {send, "L", [PackageId, Weight]}, ?TIMEOUT).
+    gen_server:call(?SERVER, {update, mark_latest, [PackageId, Weight]}, ?TIMEOUT).
 
 solve() ->
-    gen_server:call(?SERVER, {send, "X", []}, ?TIMEOUT).
+    gen_server:call(?SERVER, solve, ?TIMEOUT).
 
-handle_call({send, Command, Args}, _From, State) ->
-    send_and_get(Command, Args, State);
+handle_call({new_problem, Args}, _From, State) ->
+    {reply, ok, State#state{problem = action_to_string(new_problem, Args),
+                            data = []} };
+handle_call({update, Action, Args}, _From, #state{data = Data} = State) ->
+    {reply, ok, State#state{data = [ action_to_string(Action, Args) | Data ]}};
+handle_call(solve, _From, State) ->
+    R = case do_solve(State) of
+        {error, {data, Detail} } ->
+            % Fine, we're still in a valid state.
+            {reply, {error, Detail}, clean_state(State)};
+        {ok, {solution, Any}} ->
+            {reply, {solution, Any}, clean_state(State)};
+        Other ->
+            {stop, Other, State}
+    end,
+    R;
 handle_call(_Other, _From, State) ->
     {reply, ok, State}.
 
@@ -105,54 +112,58 @@ handle_cast(_Msg, State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-handle_info({'EXIT', Port, Reason}, #state{port = Port} = State) ->
-    {stop, {port_terminated, Reason}, State};
+handle_info({_Port, {exit_status, Status}}, State) ->
+    {stop, {port_terminated, Status}, State};
 handle_info(_Msg, State) ->
     {noreply, State}.
 
 terminate({port_terminated, _Reason}, _State) ->
     ok;
-terminate(_Reason, #state{port = Port} = _State) ->
-    port_close(Port).
-
-%%
-%% Internal impl
-%%
-
-send_and_get(Command, Args, #state{port = Port} = State) ->
-    Args0 = [ safe_int_to_list(X) || X <- Args ],
-    C = string:join([Command | Args0], " ") ,
-    ?debugFmt("SENDING: ~p~n", [C]),
-    port_command(Port, C),
-    port_command(Port, "\n"),
-    case get_response(Port) of
-        {error, timeout} ->
-            {stop, timeout, State};
-        {dataerror, Message} ->
-            {stop, {dataerror, Message}, State};
-        Response ->
-            {reply, Response, State}
+terminate(_Reason, #state{port = Port}) ->
+    % If the port is still open, ensure the process is in (or can get to) a
+    % state to notice stdin has been closed, then close it.
+    case erlang:port_info(Port) of
+        undefined ->
+            ok;
+        _Other ->
+            port_command(Port, ?RESET_SEQUENCE),
+            port_close(Port)
     end.
 
-safe_int_to_list(X) when is_integer(X) ->
-    integer_to_list(X);
-safe_int_to_list(X) ->
-    X.
+%% Internal impl
+%%
+clean_state(#state{port = Port}) ->
+    #state{port = Port}.
 
-% TODO ok, this is looking like way too much time spent concerned with
-% {error, timeout} throughout - perhaps an exception woudl be cleaner,
-% especially considering timeout should ONLY be a concern in one case
-% (solve call)
-get_response(Port) ->
+do_solve(#state{port = Port, problem = Problem, data = Data} = _State) ->
+    case reset_solver(Port) of
+        ok ->
+            send_command(Port, Problem),
+            Data2 = lists:reverse(Data),
+            [send_command(Port, Line) || Line <- Data2],
+            send_command(Port, "X"),
+            % Now we wait until we either have a solution or don't.
+            get_solution(Port);
+        error ->
+            {error, solver_unavailable}
+    end.
+
+reset_solver(Port) ->
+    % First clear solver to make sure it's not waiting for any input
+    % For example, if a poorly formatted command means it's waiting for the
+    % next "int" value as a parameter.  "0" will always be safe to send
+    % since it can always be parpsed (int or string), and will be ignored
+    % if received as a standalone value.
+    port_command(Port, ?RESET_SEQUENCE),
+    wait_for_reply(Port, "RESET").
+
+% Wait for the solution
+get_solution(Port) ->
     case receive_line(Port) of
         {error, timeout} ->
             {error, timeout};
-        "OK" ->
-            {ok, ready};
         "NOSOL" ->
-            {solution, none};
-        "PID" ->
-            reply_for_result(package_id, receive_line(Port));
+            reply_for_result(solution, none);
         "SOL" ->
             reply_for_result(solution, receive_solution(Port));
         "ERROR" ->
@@ -182,15 +193,28 @@ receive_solution(Port, Header) ->
     end.
 
 receive_packages(Port, PackageId, Acc) ->
-    receive
-        {Port, {data, {eol, "X"}}} ->
-            % do we care about order?
+    case receive_line(Port) of
+        {error, Any} ->
+            {error, Any};
+        "EOS" ->
             lists:reverse(Acc);
-        {Port, {data, {eol, Data}}} ->
+        Data ->
             {ok, [Disabled, Version], _Ignore} = io_lib:fread("~d~d", Data),
             receive_packages(Port, PackageId + 1, [{PackageId, Disabled, Version} | Acc])
-    after ?PORT_TIMEOUT ->
-        {error, timeout}
+    end.
+
+% Wait for a specific expected standalone/single-line reply from the port,
+% and ignore everything else. A timeout or process gone are the only valid failures.
+wait_for_reply(Port, Expected) ->
+    case receive_line(Port) of
+        {error, timeout} ->
+            error;
+        {error, gone} ->
+            error;
+        "RESET" ->
+            ok;
+        _Other ->
+            wait_for_reply(Port, Expected)
     end.
 
 receive_line(Port) ->
@@ -203,13 +227,36 @@ receive_line(Port, Acc) ->
         {Port, {data, {eol, Data}}} ->
             lists:flatten(lists:reverse([Data | Acc]));
         {Port, {data, {noeol, Data}}} ->
-            receive_line(Port, [Data | Acc])
+            receive_line(Port, [Data | Acc]);
+        {Port, {exit_status, _Status}} ->
+            {error, gone}
     after ?PORT_TIMEOUT ->
         {error, timeout}
     end.
 
-reply_for_result(_, {error, timeout}) ->
-    {error, timeout};
+reply_for_result(_, {error, Any}) ->
+    {error, Any};
+reply_for_result(data_error, Data) ->
+    {error, {data, Data}};
 reply_for_result(Reply, Data) ->
     {ok, {Reply, Data}}.
 
+action_to_command(new_problem) -> "NEW";
+action_to_command(add_package) -> "P";
+action_to_command(add_constraint) -> "C";
+action_to_command(mark_required) -> "R";
+action_to_command(mark_suspicious) -> "S";
+action_to_command(mark_latest) -> "L".
+
+send_command(Port, Command) ->
+    port_command(Port, Command),
+    port_command(Port, "\n").
+
+action_to_string(Action, Args) ->
+    Args0 = [ safe_int_to_list(X) || X <- Args ],
+    string:join([action_to_command(Action) | Args0], " ").
+
+safe_int_to_list(X) when is_integer(X) ->
+    integer_to_list(X);
+safe_int_to_list(X) ->
+    X.
