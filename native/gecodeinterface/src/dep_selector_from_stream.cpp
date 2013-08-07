@@ -39,10 +39,10 @@ VersionProblem * dep_selector_from_stream(std::istream & f) {
     while (true) {
       f >> cmd;
       if ((f.rdstate() & (std::istream::failbit | std::istream::eofbit) ) > 0) {
-        // TODO: Any "ERROR" is considered recoverable, but this is not.
-        cout << "ERROR" << endl << "input failure" << endl;
-        cout.flush();
-        return problem;
+        // If input fails, the best we can do is terminate, so that our
+        // client can clean up immediately. 
+        delete problem;
+        exit(128);
       }
 
       if (cmd.compare("P") == 0) {
