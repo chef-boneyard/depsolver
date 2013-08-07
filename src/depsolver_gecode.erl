@@ -240,7 +240,9 @@ solve({?MODULE, DepGraph0}, RawGoals) when erlang:length(RawGoals) > 0 ->
 -spec primitive_solve(t(),[constraint()]) -> {ok, [pkg()]} | {error, term()}.
 primitive_solve({?MODULE, DepGraph0}, RawGoals) when erlang:length(RawGoals) > 0 ->
     try
-        ?debugVal(depselector:new_problem("TEST", gb_trees:size(DepGraph0) + 1)),
+%% Use this to get more debug output...
+%%        depselector:new_problem_with_debug("TEST", gb_trees:size(DepGraph0) + 1),
+        depselector:new_problem("TEST", gb_trees:size(DepGraph0) + 1),
         Problem = generate_versions(DepGraph0),
         ?debugFmt("~p~n", [Problem]),
         generate_constraints(DepGraph0, RawGoals, Problem),
@@ -259,8 +261,7 @@ generate_versions(DepGraph0) ->
     Versions0 = version_manager:new(),
     %% the runlist is treated as a virtual package.
     Versions1 = version_manager:add_package(?RUNLIST, [?RUNLIST_VERSION], Versions0),
-    {ok, {package_id, Id}} = depselector:add_package(0,0,0),
-    ?debugVal(Id),
+    {ok, {package_id, _Id}} = depselector:add_package(0,0,0),
     depselector:mark_package_required(0),
 
     %% Add all the other packages
@@ -291,9 +292,7 @@ generate_constraints(DepGraph, RawGoals, Problem) ->
 add_constraints_for_package(PkgName, VersionConstraints, Problem) ->
     AddVersionConstraint =
         fun(Version, Constraints) ->
-                ?debugFmt("N:~p P:~p~n", [PkgName, Version]),
                 {PkgIndex, VersionId} = version_manager:get_version_id(PkgName, Version, Problem),
-                ?debugFmt("N:~p P:~p~n", [PkgIndex, VersionId]),
                 [ add_constraint_element(Constraint, PkgIndex, VersionId, Problem) || Constraint <- Constraints]
         end,
     [AddVersionConstraint(PkgVersion, ConstraintList) || {PkgVersion, ConstraintList} <- VersionConstraints].
@@ -301,14 +300,14 @@ add_constraints_for_package(PkgName, VersionConstraints, Problem) ->
 add_constraint_element({DepPkgName, Version}, PkgIndex, VersionId, Problem) ->
     add_constraint_element({DepPkgName, Version, eq}, PkgIndex, VersionId, Problem);
 add_constraint_element({DepPkgName, DepPkgVersion, Type}, PkgIndex, VersionId, Problem) ->
-    ?debugFmt("DP: ~p C: ~p ~p~n", [DepPkgName, DepPkgVersion, Type]),
+%%    ?debugFmt("DP: ~p C: ~p ~p~n", [DepPkgName, DepPkgVersion, Type]),
     add_constraint_element_helper(DepPkgName, {DepPkgVersion, Type}, PkgIndex, VersionId, Problem);
 add_constraint_element({DepPkgName, DepPkgVersion1, DepPkgVersion2, Type}, PkgIndex, VersionId, Problem) ->
-    ?debugFmt("DP: ~p C: ~p ~p ~p~n", [DepPkgName, DepPkgVersion1, DepPkgVersion2, Type]),
+%%    ?debugFmt("DP: ~p C: ~p ~p ~p~n", [DepPkgName, DepPkgVersion1, DepPkgVersion2, Type]),
     add_constraint_element_helper(DepPkgName, {DepPkgVersion1, DepPkgVersion2, Type},
                                   PkgIndex, VersionId, Problem);
 add_constraint_element(DepPkgName, PkgIndex, VersionId, Problem) when not is_tuple(DepPkgName) ->
-    ?debugFmt("DP: ~p C: ~p ~n", [DepPkgName, any]),
+%%    ?debugFmt("DP: ~p C: ~p ~n", [DepPkgName, any]),
     add_constraint_element_helper(DepPkgName, any, PkgIndex, VersionId, Problem).
 
 add_constraint_element_helper(DepPkgName, Constraint, PkgIndex, VersionId, Problem) ->
