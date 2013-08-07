@@ -106,8 +106,8 @@ map_constraint(DependentPackage, Constraint, #problem{byName=ByName}) ->
             no_matching_package;
         {value, #package{index=Index, versionMapper = Mapper}} ->
             ConstraintRange = constraint_to_range(Constraint, Mapper),
-            ?debugFmt("PKG: ~p C ~p -> I ~p R ~p~n",
-                      [DependentPackage, Constraint, Index, ConstraintRange]),
+%            ?debugFmt("PKG: ~p C ~p -> I ~p R ~p~n",
+%                      [DependentPackage, Constraint, Index, ConstraintRange]),
             {Index, ConstraintRange}
     end.
 
