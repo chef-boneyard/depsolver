@@ -1,6 +1,6 @@
 //
 // Author:: Mark Anderson (<mark@opscode.com>)
-// Author:: Mark Paradise (<marc@opscode.com>)
+// Author:: Marc Paradise (<marc@opscode.com>)
 // Copyright:: Copyright (c) 2013-2013 Opscode, Inc.
 // License:: Apache License, Version 2.0
 //
@@ -34,15 +34,12 @@ VersionProblem * dep_selector_from_stream(std::istream & f) {
     string guid;
     int dumpStats, debug;
     int packageCount, packageId;
-    bool replySent = false;
     f >> guid >> packageCount >> dumpStats >> debug;
-    cout << "OK" << endl << flush;
-
     VersionProblem *problem = new VersionProblem(packageCount, dumpStats, debug, guid.c_str());
     while (true) {
       f >> cmd;
-
       if ((f.rdstate() & (std::istream::failbit | std::istream::eofbit) ) > 0) {
+        // TODO: Any "ERROR" is considered recoverable, but this is not.
         cout << "ERROR" << endl << "input failure" << endl;
         cout.flush();
         return problem;
@@ -56,8 +53,6 @@ VersionProblem * dep_selector_from_stream(std::istream & f) {
           cout << "ERROR" << endl << "already added max packages" << endl;
           return problem;
         }
-        cout << "PID" << endl << id << endl;
-        replySent = true;
       } else if (cmd.compare("C") == 0) {
         // TODO here down, make sure we have 'problem'...
         int version, dependentPackageId, minDependentVersion, maxDependentVersion;
@@ -83,36 +78,34 @@ VersionProblem * dep_selector_from_stream(std::istream & f) {
           } else {
             cout << "NOSOL" << endl;
           }
-          return problem;
         } else {
           cout << "ERROR" << endl << "package count did not match expected." << endl;
-          return problem;
         }
+        return problem;
+      } else if (cmd.compare("0") == 0) {
+        // This means that  our input is trying to make sure we're
+        // reset and ensuring we're not expecting furtherinputs for any
+        // command. Ignore it - a reset will be following.
       } else {
-         cout << "ERROR" << endl << "unexpected input: " << cmd << endl;
-         return problem;
+        // Any out-of-sequence or unexpected input simply resets our
+        // state.  This requires that the caller be aware of this, and
+        // manage its state accordingly.
+        cout << endl << "RESET" << endl;
+        return problem;
       }
-      if (replySent) {
-        replySent = false;
-      } else {
-        cout << "OK" << endl;
-      }
-      cout.flush();
     }
     return problem;
-}
-
-bool check_state(std::istream & f) {
 }
 
 void dump_solution(VersionProblem * solution) {
   int count = solution->PackageCount();
   // Solution start indicator, along with valid indicator.
   cout << "SOL" << endl << solution->GetDisabledVariableCount() << endl;
+
   for (int id = 0; id < count; id++) {
     // ids are sequential, so there's no reason to dump them - the caller can infer them.
     cout << solution->GetPackageDisabledState(id) << " " << solution->GetPackageVersion(id) << endl;
   }
   // End-of-solution indicator
-  cout << "X"<< endl;
+  cout << "EOS" << endl;
 }

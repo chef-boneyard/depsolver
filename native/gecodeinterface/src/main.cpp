@@ -41,9 +41,15 @@ int main(int argc, char * argv[])
       cout.flush();
     } else if (cmd.compare("EXIT") == 0) {
       return 0;
+    } else if (cmd.compare("COREDUMP") == 0) {
+      int *x = 0;
+      *x = 0;
+    } else if (cmd.compare("0") == 0) {
+      // Caller is attempting to flush any pending command input. Ignore
+      // the noise.
     } else {
-      cout << "ERROR" << endl << "Unknown command " << cmd << endl;
-      cout.flush();
+      // Any unexpected input simply resets our state.
+      cout << endl << "RESET" << endl;
     }
 
   }
