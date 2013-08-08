@@ -35,26 +35,26 @@ all_test_() ->
      end,
      fun(_) -> application:stop(depsolver) end,
      [
-      %% {?MODULE, first}, %% OK
-      %% {?MODULE, second}, %% OK
-      %% {?MODULE, third}, %% OK
-      %% {?MODULE, fail}, TODO
-      %% {?MODULE, conflicting_passing}, %% OK
-      %% {?MODULE, circular_dependencies}, %% OK
-      %% {?MODULE, conflicting_failing}, %% TODO
-      {?MODULE, pessimistic_major_minor_patch}
-      %% {?MODULE, pessimistic_major_minor},
-      %% {?MODULE, filter_packages_with_deps},
-      %% {?MODULE, filter_versions},
-      %% {?MODULE, missing},
-      %% {?MODULE, binary},
-      %% {?MODULE, doesnt_exist},
-      %% {?MODULE, not_new_enough},
-      %% {?MODULE, impossible_dependency},
-      %% {?MODULE, integration},
-      %% {?MODULE, missing_via_culprit_search},
-      %% {generator, ?MODULE, format},
-      %% {generator, ?MODULE, missing2}
+       {?MODULE, first}, %% OK
+       {?MODULE, second}, %% OK
+       {?MODULE, third}, %% OK
+       %{?MODULE, fail},
+       %{?MODULE, conflicting_passing}, %% OK
+       {?MODULE, circular_dependencies} %% OK
+       %{?MODULE, conflicting_failing}, %% TODO
+       %{?MODULE, pessimistic_major_minor_patch},
+       %{?MODULE, pessimistic_major_minor},
+       %{?MODULE, filter_packages_with_deps},
+       %{?MODULE, filter_versions},
+       %{?MODULE, missing}
+       %{?MODULE, binary},
+       %{?MODULE, doesnt_exist},
+       %{?MODULE, not_new_enough},
+       %{?MODULE, impossible_dependency},
+       %{?MODULE, integration},
+       %{?MODULE, missing_via_culprit_search},
+       %{generator, ?MODULE, format},
+       %{generator, ?MODULE, missing2}
 
      ]
     }.
