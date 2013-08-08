@@ -24,10 +24,7 @@
 
 using namespace std;
 
-
-const int BUFSIZE = 1024;
-
-void dump_solution(VersionProblem *);
+void dump_solution(VersionProblem * solution);
 
 VersionProblem * dep_selector_from_stream(std::istream & f) {
     string cmd;
@@ -88,14 +85,18 @@ VersionProblem * dep_selector_from_stream(std::istream & f) {
         }
         return ret;
       } else if (cmd.compare("0") == 0) {
-        // This means that  our input is trying to make sure we're
+        // This means that  our input is j
+        // % TODO we should be able to prevent this from occurring.
+        // Currently we have
+        // no capture of when we time out waiting for a reply from the
+        // port - hying to make sure we're
         // reset and ensuring we're not expecting furtherinputs for any
         // command. Ignore it - a reset will be following.
       } else {
         // Any out-of-sequence or unexpected input simply resets our
         // state.  This requires that the caller be aware of this, and
         // manage its state accordingly.
-        cout << endl << "RESET" << endl;
+        cout <<  "RESET" << endl;
         return problem;
       }
     }
