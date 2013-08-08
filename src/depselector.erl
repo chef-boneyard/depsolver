@@ -23,10 +23,12 @@
 -module(depselector).
 -include_lib("eunit/include/eunit.hrl").
 
--behaviour(gen_server).
-
+-behaviour(gen_fsm).
+%% State  flow
 %% API
 -export([start_link/1,
+         acquire/0,
+         is_ready/0,
          new_problem/2,
          new_problem_with_debug/2,
          add_package/3,
@@ -34,219 +36,267 @@
          mark_package_required/1,
          mark_package_suspicious/1,
          mark_package_latest/2,
-         solve/0]).
--export([wait_for_reply/2]).
+         solve/0,
+         abort/0]).
+%% FSM
 -export([init/1,
-         handle_call/3,
-         handle_cast/2,
-         handle_info/2,
-         terminate/2,
-         code_change/3]).
+         handle_info/3,
+         handle_sync_event/4,
+         handle_event/3,
+         terminate/3,
+         code_change/4]).
+
+%% States
+-export([pending_pid/2,
+         ready/2,
+         collecting/2,
+         collecting/3,
+         solving/2
+        ]).
+
+%% Testing interface
+-export([force_hang/0,
+         force_crash/0,
+         force_exit/0,
+         force_leak_kill/0]).
 
 -define(SERVER, ?MODULE).
 -define(TIMEOUT,5000).
 -define(PORT_TIMEOUT, 4000).
+% This sequence is intended to first clear any in-flight commands
+% such that if the solver is waiting for a specific input (string or numeric)
+% it can safely accept them and eat the value.
+% 0 received by itself is a no-op.
+% Once the expected inputs are cleared, we issue an actual RESET.
 -define(RESET_SEQUENCE, "0\n0\n0\n0\n0\n0\nRESET\n").
 
--record(state, { port, problem, data }).
+-record(state, { port :: pid(), % Port process
+                 os_pid ::  string(), % port's OS pid
+                 reply_to :: pid(), % who to send notification to, when appropriate
+                 problem :: string(), % command that initializes a problme in solver
+                 problem_params :: [string()], % accumulated commands that  define a problems parameters
+                 inbuf :: [string()], % Accumulated input chunks from successive port noeol messages.
+                 disable_count :: non_neg_integer(), % Number of packages disabled in the solution-in-progress
+                 packages :: [{integer(), integer(), integer()}] }).
+
 
 start_link(Executable) ->
-    gen_server:start_link({local, ?SERVER}, depselector, Executable, []).
+    gen_fsm:start_link({local, ?SERVER}, depselector, Executable, []).
 
+% The call must ensure that this instance is available for use
+% prior to invoking any other calls.  This will ensure that startup has completed.
+acquire() ->
+    gen_fsm:sync_send_all_state_event(?SERVER, notify_ready).
+
+is_ready() ->
+    case gen_fsm:sync_send_all_state_event(?SERVER, curstate) of
+        ready -> true;
+        _ -> false
+    end.
+
+%% TODO for compatibity with pooler, these will need to be modified to use a provided pid
+new_problem_with_debug(ID, NumPackages) ->
+    gen_fsm:send_event(?SERVER, {new_problem, [ID, NumPackages, 1, 1]}).
+
+new_problem(ID, NumPackages) ->
+    gen_fsm:send_event(?SERVER, {new_problem, [ID, NumPackages, 0, 0]}).
+
+add_package(MinVer, MaxVer, CurVer) ->
+    gen_fsm:send_event(?SERVER, {update, add_package, [MinVer, MaxVer, CurVer]}).
+
+add_version_constraint(PackageId, Version, DepPackageId, MinVer, MaxVer) ->
+    gen_fsm:send_event(?SERVER, {update, add_constraint, [PackageId, Version, DepPackageId, MinVer, MaxVer]}).
+
+mark_package_required(PackageId) ->
+    gen_fsm:send_event(?SERVER, {update, mark_required, [PackageId]}).
+
+mark_package_suspicious(PackageId) ->
+    gen_fsm:send_event(?SERVER, {update, mark_suspicious, [PackageId]}).
+
+mark_package_latest(PackageId, Weight) ->
+    gen_fsm:send_event(?SERVER, {update, mark_latest, [PackageId, Weight]}).
+
+abort() ->
+    % TODO make this sync we we can provide a meaningful reply?
+    gen_fsm:send_all_state_event(?SERVER, abort).
+
+solve() ->
+    gen_fsm:sync_send_event(?SERVER, solve).
+
+%% Testing interface to induce various error conditions in the external process
+force_hang() ->
+    gen_fsm:send_event(?SERVER, {test_action, hang}).
+
+force_crash() ->
+    gen_fsm:send_event(?SERVER, {test_action, segfault}).
+
+force_exit() ->
+    gen_fsm:send_event(?SERVER, {test_action, exit}).
+
+force_leak_kill() ->
+    gen_fsm:send_event(?SERVER, {test_action, leak}).
+
+% States
 init(Executable) ->
     process_flag(trap_exit, true),
     case open_port({spawn_executable, Executable}, [exit_status, use_stdio, stream, {line, 1024}]) of
         {error, Reason} ->
             {error, Reason};
         Port ->
-            {ok, #state{port = Port}}
+            {ok, pending_pid, #state{port = Port, inbuf = []}}
     end.
 
-%% TODO for compatibity with pooler, these will need to be modified to send to the provided pid
-new_problem_with_debug(ID, NumPackages) ->
-    gen_server:call(?SERVER, {new_problem, [ID, NumPackages, 1, 1]}, ?TIMEOUT).
+% A couple of 'shadow' states - they are used internally, but
+% in usage the client may not use methods
+% that permit events to be received while in these states.
+pending_pid(timeout, State) ->
+    % Never received the reply we expected - let's shut things down
+    {stop, {error, no_pid_received}, State}.
 
-new_problem(ID, NumPackages) ->
-    gen_server:call(?SERVER, {new_problem, [ID, NumPackages, 0, 0]}, ?TIMEOUT).
+ready({new_problem, Args}, State) ->
+    NewState = State#state{problem = action_to_string(new_problem, Args), problem_params = []},
+    {next_state, collecting, NewState};
+ready(timeout, #state{reply_to = undefined} = State) ->
+    {next_state, ready, State};
+ready(timeout, #state{reply_to = ReplyTo} = State) ->
+    gen_fsm:reply(ReplyTo, true),
+    {next_state, ready, State#state{reply_to = undefined}}.
 
-add_package(MinVer, MaxVer, CurVer) ->
-    gen_server:call(?SERVER, {update, add_package, [MinVer, MaxVer, CurVer]}, ?TIMEOUT).
+collecting({update, Action, Args}, #state{problem_params = Params} = State) ->
+    NewState = State#state{problem_params = [ action_to_string(Action, Args) | Params]},
+    {next_state, collecting, NewState};
+collecting({test_action, Action}, State) ->
+    do_test_action(Action, collecting, State).
 
-add_version_constraint(PackageId, Version, DepPackageId, MinVer, MaxVer) ->
-    gen_server:call(?SERVER, {update, add_constraint, [PackageId, Version, DepPackageId, MinVer, MaxVer]}, ?TIMEOUT).
+collecting(solve, From, #state{port = Port} = State) ->
+    port_command(Port, ?RESET_SEQUENCE),
+    % note that the next_state response means our caller is waiting for us to
+    % eventually reply via gen_fsm:reply/2 (or timeout, whichever occurs first)
+    {next_state, resetting, State#state{reply_to = From}}.
 
-mark_package_required(PackageId) ->
-    gen_server:call(?SERVER, {update, mark_required, [PackageId]}, ?TIMEOUT).
+solving({test_action, Action}, State) ->
+    do_test_action(Action, solving, State);
+solving(timeout, State) ->
+    % This means we never received a solution. Let's shut down,
+    % which will notify caller of failure and terminate the solver instance.
+    {stop, {error, solution_timeout}, State}.
 
-mark_package_suspicious(PackageId) ->
-    gen_server:call(?SERVER, {update, mark_suspicious, [PackageId]}, ?TIMEOUT).
+handle_info({_Port, {data, {eol, Data}}}, StateName, #state{inbuf = Acc} = State) ->
+    Line = lists:flatten(lists:reverse([Data | Acc])),
+    handle_inbound_data(StateName, Line, State#state{inbuf = []});
+handle_info({_Port, {data, {noeol, Data}}}, StateName, #state{inbuf = Acc} = StateData) ->
+    % incomplete message, keep accumulating
+    {next_state, StateName, StateData#state{inbuf = [Data | Acc]}};
+handle_info({_Port, {exit_status, Status}}, _StateName, StateData) ->
+    ?debugMsg("Port process terminated."),
+    {stop, {port_terminated, Status}, StateData};
+handle_info(Msg, StateName, State) ->
+    ?debugFmt("[~p] discarding data: ~p", [StateName, Msg]),
+    {next_state, StateName, State}.
 
-mark_package_latest(PackageId, Weight) ->
-    gen_server:call(?SERVER, {update, mark_latest, [PackageId, Weight]}, ?TIMEOUT).
+handle_event(abort, ready, StateData) ->
+    {next_state, ready, clean_state(StateData)};
+handle_event(abort, collecting, StateData) ->
+    {next_state, ready, clean_state(StateData)};
+handle_event(abort, StateName, StateData) ->
+    % In any other case, we can't process an abort - we're in flight with communications
+    % to the solver.
+    {next_state, StateName, StateData};
+handle_event(_Event, StateName, StateData) ->
+    {next_state, StateName, StateData}.
 
-solve() ->
-    gen_server:call(?SERVER, solve, ?TIMEOUT).
+handle_sync_event(curstate, _From, StateName, StateData) ->
+    {reply, StateName, StateName, StateData};
+handle_sync_event(notify_ready, _From, ready, StateData) ->
+    {reply, true, ready, StateData};
+handle_sync_event(notify_ready, From, StateName, StateData) ->
+    {next_state, StateName, StateData#state{reply_to = From}};
+handle_sync_event(_Event, _From, StateName, StateData) ->
+    {reply, ok, StateName, StateData}.
 
-handle_call({new_problem, Args}, _From, State) ->
-    {reply, ok, State#state{problem = action_to_string(new_problem, Args),
-                            data = []} };
-handle_call({update, Action, Args}, _From, #state{data = Data} = State) ->
-    {reply, ok, State#state{data = [ action_to_string(Action, Args) | Data ]}};
-handle_call(solve, _From, State) ->
-    R = case do_solve(State) of
-        {error, {data, Detail} } ->
-            % Fine, we're still in a valid state.
-            {reply, {error, Detail}, clean_state(State)};
-        {ok, {solution, Any}} ->
-            {reply, {solution, Any}, clean_state(State)};
-        Other ->
-            {stop, Other, State}
-    end,
-    R;
-handle_call(_Other, _From, State) ->
-    {reply, ok, State}.
+code_change(_OldVsn, StateName, State, _Extra) ->
+    {ok, StateName, State}.
 
-handle_cast(_Msg, State) ->
-    {noreply, State}.
-
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
-
-handle_info({_Port, {exit_status, Status}}, State) ->
-    {stop, {port_terminated, Status}, State};
-handle_info(_Msg, State) ->
-    {noreply, State}.
-
-terminate({port_terminated, _Reason}, _State) ->
+terminate({port_terminated, _Reason}, _StateName, _State) ->
     ok;
-terminate(_Reason, #state{port = Port}) ->
-    % If the port is still open, ensure the process is in (or can get to) a
-    % state to notice stdin has been closed, then close it.
+terminate(_Reason, _StateName, #state{port = Port, os_pid = PID}) ->
     case erlang:port_info(Port) of
         undefined ->
             ok;
         _Other ->
             port_command(Port, ?RESET_SEQUENCE),
             port_close(Port)
+
+    end,
+    case PID of
+        undefined ->
+            ok;
+        _ ->
+            os:cmd(lists:flatten(["kill", " ", PID]))
     end.
 
-%% Internal impl
-%%
-clean_state(#state{port = Port}) ->
-    #state{port = Port}.
-
-do_solve(#state{port = Port, problem = Problem, data = Data} = _State) ->
-    case reset_solver(Port) of
-        ok ->
-            send_command(Port, Problem),
-            Data2 = lists:reverse(Data),
-            [send_command(Port, Line) || Line <- Data2],
-            send_command(Port, "X"),
-            % Now we wait until we either have a solution or don't.
-            get_solution(Port);
-        error ->
-            {error, solver_unavailable}
-    end.
-
-reset_solver(Port) ->
-    % First clear solver to make sure it's not waiting for any input
-    % For example, if a poorly formatted command means it's waiting for the
-    % next "int" value as a parameter.  "0" will always be safe to send
-    % since it can always be parpsed (int or string), and will be ignored
-    % if received as a standalone value.
-    port_command(Port, ?RESET_SEQUENCE),
-    wait_for_reply(Port, "RESET").
-
-% Wait for the solution
-get_solution(Port) ->
-    case receive_line(Port) of
-        {error, timeout} ->
-            {error, timeout};
-        "NOSOL" ->
-            reply_for_result(solution, none);
-        "SOL" ->
-            reply_for_result(solution, receive_solution(Port));
-        "ERROR" ->
-            reply_for_result(data_error, receive_line(Port));
-        Other ->
-            {error, {unexpected_response, Other}}
-    end.
-
-receive_solution(Port) ->
-    receive_solution(Port, receive_line(Port)).
-
-receive_solution(_Port, {error, timeout}) ->
-     {error, timeout};
-receive_solution(Port, Header) ->
-    {ok, [DisabledCount], _Ignore} = io_lib:fread("~d", Header),
+handle_inbound_data(pending_pid, Data, State) ->
+    % Time this out so we'll reply to any waiting client
+    {next_state, ready, State#state{os_pid = Data}, 0};
+% We are resetting pre-solve and have received confirmation that reset is complete.
+handle_inbound_data(resetting, "RESET", #state{port = Port, problem_params = Params, problem = Problem} = State) ->
+    send_command(Port, Problem),
+    Data2 = lists:reverse(Params),
+    [send_command(Port, Line) || Line <- Data2],
+    send_command(Port, "X"),
+    % Wait for a reply, but for no longer than the specified timeout.
+    {next_state, solving, State, ?PORT_TIMEOUT};
+handle_inbound_data(ready, "RESET", #state{port = _Port} = State) ->
+    % We can receive this if an error occurs in one of the batchced commands we send to solver -
+    % we send all commands prior to checking to see if any errors occur.  When that happens,
+    % solver sees all commands post-error as unknown input, which causes it to reset state.
+    {next_state, ready, State};
+handle_inbound_data(solving, "ERROR", #state{port = _Port} = State) ->
+    % Wait for the error
+    {next_state, solving_error_wait, State};
+handle_inbound_data(solving_error_wait, Error, #state{reply_to = ReplyTo} = State) ->
+    gen_fsm:reply(ReplyTo, {error, Error}),
+    {next_state, ready, clean_state(State)};
+handle_inbound_data(solving, "SOL", State) ->
+    {next_state, solving_wait_header, State#state{packages = []}};
+handle_inbound_data(solving, "NOSOL", #state{reply_to = ReplyTo} = State) ->
+    gen_fsm:reply(ReplyTo, {solution, none}),
+    {next_state, ready, clean_state(State)};
+handle_inbound_data(solving_wait_header, Data, State) ->
+    {ok, [DisabledCount], _Ignore} = io_lib:fread("~d", Data),
+    {next_state, solving_wait_packages, State#state{disable_count = DisabledCount}};
+handle_inbound_data(solving_wait_packages, "EOS", #state{reply_to = ReplyTo,
+                                                         disable_count = DisabledCount,
+                                                         packages = Packages } = State) ->
     Valid = case DisabledCount of
         0 -> valid;
         _ -> invalid
     end,
-    case receive_packages(Port, 0, []) of
-        {error, timeout} ->
-            {error, timeout};
-        Packages ->
-            { {state, Valid},
-              {disabled, DisabledCount},
-              {packages, Packages} }
-    end.
+    Solution = { {state, Valid},
+                 {disabled, DisabledCount},
+                 {packages, lists:reverse(Packages)} },
+    gen_fsm:reply(ReplyTo, {solution, Solution}),
+    {next_state, ready, clean_state(State)};
+handle_inbound_data(solving_wait_packages, Data, #state{packages = Packages} = State) ->
+    {ok, [Disabled, Version], _Ignore} = io_lib:fread("~d~d", Data),
+    Package = {length(Packages), Disabled, Version},
+    NewState = State#state{packages = [Package | Packages]},
+    {next_state, solving_wait_packages, NewState};
+handle_inbound_data(StateName, Data, #state{} = State) ->
+    ?debugFmt("Unexpected data ~p in state ~p", [Data, StateName]),
+    {next_state, StateName, State}.
 
-receive_packages(Port, PackageId, Acc) ->
-    case receive_line(Port) of
-        {error, Any} ->
-            {error, Any};
-        "EOS" ->
-            lists:reverse(Acc);
-        Data ->
-            {ok, [Disabled, Version], _Ignore} = io_lib:fread("~d~d", Data),
-            receive_packages(Port, PackageId + 1, [{PackageId, Disabled, Version} | Acc])
-    end.
+%% Internal impl
+%%
 
-% Wait for a specific expected standalone/single-line reply from the port,
-% and ignore everything else. A timeout or process gone are the only valid failures.
-wait_for_reply(Port, Expected) ->
-    case receive_line(Port) of
-        {error, timeout} ->
-            error;
-        {error, gone} ->
-            error;
-        "RESET" ->
-            ok;
-        _Other ->
-            wait_for_reply(Port, Expected)
-    end.
+%% Create a 'clean' #state record, retaining only data required to manage
+%% the port.
+clean_state(#state{port = Port, os_pid = PID}) ->
+    #state{port = Port, os_pid = PID, inbuf = []}.
 
-receive_line(Port) ->
-    receive_line(Port, []).
-
-% Note that this handles multi-chunk lines "just in case", though our
-% protocol does not have any lines that will exceed buffer size.
-receive_line(Port, Acc) ->
-    receive
-        {Port, {data, {eol, Data}}} ->
-            lists:flatten(lists:reverse([Data | Acc]));
-        {Port, {data, {noeol, Data}}} ->
-            receive_line(Port, [Data | Acc]);
-        {Port, {exit_status, _Status}} ->
-            {error, gone}
-    after ?PORT_TIMEOUT ->
-        {error, timeout}
-    end.
-
-reply_for_result(_, {error, Any}) ->
-    {error, Any};
-reply_for_result(data_error, Data) ->
-    {error, {data, Data}};
-reply_for_result(Reply, Data) ->
-    {ok, {Reply, Data}}.
-
-action_to_command(new_problem) -> "NEW";
-action_to_command(add_package) -> "P";
-action_to_command(add_constraint) -> "C";
-action_to_command(mark_required) -> "R";
-action_to_command(mark_suspicious) -> "S";
-action_to_command(mark_latest) -> "L".
+do_test_action(Action, StateName, #state{port = Port} = State) ->
+    send_command(Port, action_to_command(Action)),
+    {next_state, StateName, State}.
 
 send_command(Port, Command) ->
     port_command(Port, Command),
@@ -255,6 +305,17 @@ send_command(Port, Command) ->
 action_to_string(Action, Args) ->
     Args0 = [ safe_int_to_list(X) || X <- Args ],
     string:join([action_to_command(Action) | Args0], " ").
+
+action_to_command(new_problem) -> "NEW";
+action_to_command(add_package) -> "P";
+action_to_command(add_constraint) -> "C";
+action_to_command(mark_required) -> "R";
+action_to_command(mark_suspicious) -> "S";
+action_to_command(mark_latest) -> "L";
+action_to_command(hang) -> "HANG";
+action_to_command(segfault) -> "SEGFAULT";
+action_to_command(exit) -> "EXIT";
+action_to_command(leak) -> "LEAK".
 
 safe_int_to_list(X) when is_integer(X) ->
     integer_to_list(X);
