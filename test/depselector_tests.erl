@@ -45,6 +45,7 @@ clean_test_() ->
        {?MODULE, abort_in_problem},
        {?MODULE, too_many_packages},
        {?MODULE, not_enough_packages},
+       {?MODULE, new_problem_from_dirty_state},
        {?MODULE, error_recovery}
      ]
     }.
@@ -63,6 +64,15 @@ add_dep() ->
     depselector:mark_package_required(0),
     ?assertMatch({solution,{{state,valid},{disabled,0},{packages,[{0,0,0}]}}},
                   depselector:solve()).
+
+
+new_problem_from_dirty_state() ->
+    depselector:new_problem("TEST", 1),
+    add_packages(1),
+    % simulate the caller crashing before it can request a solve,
+    % then a subsequent use of this FSM for another solve.
+    basic_solve().
+
 
 abort_in_problem() ->
     depselector:new_problem("TEST", 1),
