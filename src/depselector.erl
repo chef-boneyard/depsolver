@@ -96,10 +96,21 @@ is_ready() ->
 
 %% TODO for compatibity with pooler, these will need to be modified to use a provided pid
 new_problem_with_debug(ID, NumPackages) ->
-    gen_fsm:send_event(?SERVER, {new_problem, [ID, NumPackages, 1, 1]}).
+    do_new_problem(ID, NumPackages, 1, 1).
 
 new_problem(ID, NumPackages) ->
-    gen_fsm:send_event(?SERVER, {new_problem, [ID, NumPackages, 0, 0]}).
+    do_new_problem(ID, NumPackages, 1, 1).
+
+do_new_problem(ID, NumPackages, Stats, Debug) ->
+    % let's ensure we're in a valid state.
+    % First abort any in-process work - note that
+    % if we can't do this (such as for a runaway solve that somehow evaded timeout)
+    % we're going to crash the fsm at this point.
+    abort(),
+    % Now wait for ready state before continuing.
+    acquire(),
+    % Last, start the problem.
+    gen_fsm:send_event(?SERVER, {new_problem, [ID, NumPackages, Stats, Debug]}).
 
 add_package(MinVer, MaxVer, CurVer) ->
     gen_fsm:send_event(?SERVER, {update, add_package, [MinVer, MaxVer, CurVer]}).
@@ -194,6 +205,9 @@ handle_info(Msg, StateName, State) ->
     ?debugFmt("[~p] discarding data: ~p", [StateName, Msg]),
     {next_state, StateName, State}.
 
+handle_event(abort, pending_pid, StateData) ->
+    % abort has no effect while we're  intializing.
+    {next_state, pending_pid, StateData};
 handle_event(abort, ready, StateData) ->
     {next_state, ready, clean_state(StateData)};
 handle_event(abort, collecting, StateData) ->
@@ -220,20 +234,8 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 terminate({port_terminated, _Reason}, _StateName, _State) ->
     ok;
 terminate(_Reason, _StateName, #state{port = Port, os_pid = PID}) ->
-    case erlang:port_info(Port) of
-        undefined ->
-            ok;
-        _Other ->
-            port_command(Port, ?RESET_SEQUENCE),
-            port_close(Port)
-
-    end,
-    case PID of
-        undefined ->
-            ok;
-        _ ->
-            os:cmd(lists:flatten(["kill", " ", PID]))
-    end.
+    close_port(erlang:port_info(Port), Port),
+    kill_port_os_proc(PID).
 
 handle_inbound_data(pending_pid, Data, State) ->
     % Time this out so we'll reply to any waiting client
@@ -297,6 +299,15 @@ clean_state(#state{port = Port, os_pid = PID}) ->
 do_test_action(Action, StateName, #state{port = Port} = State) ->
     send_command(Port, action_to_command(Action)),
     {next_state, StateName, State}.
+
+close_port(undefined, _) -> ok;
+close_port(_ ,Port) ->
+    port_command(Port, ?RESET_SEQUENCE),
+    port_close(Port).
+
+kill_port_os_proc(undefined) -> ok;
+kill_port_os_proc(PID) ->
+    os:cmd(lists:flatten(["kill", " ", PID])).
 
 send_command(Port, Command) ->
     port_command(Port, Command),

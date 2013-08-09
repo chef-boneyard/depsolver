@@ -36,12 +36,12 @@ clean_test_() ->
     {foreach,
      fun() ->
              error_logger:delete_report_handler(error_logger_tty_h),
-             application:start(depsolver),
-             depselector:acquire()
+             application:start(depsolver)
      end,
      fun(_) -> application:stop(depsolver) end,
      [
        {?MODULE, basic_solve},
+       {?MODULE, add_dep},
        {?MODULE, abort_in_problem},
        {?MODULE, too_many_packages},
        {?MODULE, not_enough_packages},
@@ -52,6 +52,14 @@ clean_test_() ->
 basic_solve() ->
     depselector:new_problem("TEST", 1),
     add_packages(1),
+    depselector:mark_package_required(0),
+    ?assertMatch({solution,{{state,valid},{disabled,0},{packages,[{0,0,0}]}}},
+                  depselector:solve()).
+add_dep() ->
+    depselector:new_problem("TEST", 1),
+    add_packages(1),
+    % This shouldn't cause error or failure
+    depselector:add_version_constraint(0, 0, 0, 0, 0),
     depselector:mark_package_required(0),
     ?assertMatch({solution,{{state,valid},{disabled,0},{packages,[{0,0,0}]}}},
                   depselector:solve()).
