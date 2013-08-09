@@ -231,17 +231,53 @@ add_package_version(State, Pkg, Vsn) ->
 %% ``` depsolver:solve(State, [{app1, "0.1", '>='}]).'''
 -spec solve(t(),[constraint()]) -> {ok, [pkg()]} | {error, term()}.
 solve({?MODULE, DepGraph0}, RawGoals) when erlang:length(RawGoals) > 0 ->
-    primitive_solve({?MODULE, DepGraph0}, RawGoals).
+    case setup(DepGraph0, RawGoals) of
+        {error, {unreachable_package, Name}} ->
+            {error, {unreachable_package, Name}};
+        {ok, Problem} ->
+            case depselector:solve() of
+                {ok, {solution,
+                      {{state, invalid},
+                       {disabled, _Disabled_Count},
+                       {packages, _PackageVersionIds}} = _Results} = _Solution} ->
+                    %% Find smallest prefix of the runlist that still fails
+                    culprit_search(DepGraph0, RawGoals, 1);
+                {ok, {solution,
+                      {{state, valid},
+                       {disabled, _Disabled_Count},
+                       {packages, PackageVersionIds}}}} = _Solution ->
+                    {ok, unmap_packed_solution(PackageVersionIds, Problem)}
+            end
+    end.
 
 
-%% @doc Given a set of goals (in the form of constrains) find a set of packages
-%% and versions that satisfy all constraints. If no solution can be found then
-%% an exception is thrown. This is basically the root solver of the system, the main difference
-%% from the exported solve/2 function is the fact that this does not do the
-%% culprit search.
-%% ``` depsolver:primitive_solve(State, [{app1, "0.1", '>='}]).'''
--spec primitive_solve(t(),[constraint()]) -> {ok, [pkg()]} | {error, term()}.
-primitive_solve({?MODULE, DepGraph0}, RawGoals) when erlang:length(RawGoals) > 0 ->
+%% @doc this tries sucessively longer prefixes of the runlist until we make it fail. The goal is to
+%% trim the list down a little bit to simplify what people see as broken. Certainly more work could
+%% be done to simplify things, but we don't want to spend excessive CPU time on this either.
+%%
+%% There is some excess work being done, in that we set the problem up mutliple times from scratch,
+%% but we're only changing the runlist. Also, what we're doing with the list prefixes search
+%% probably could be improved, but for the time being we're assuming the runlists are short enough
+%% that quadratic behavior isn't important.
+culprit_search(DepGraph0, RawGoals, Length) when Length < length(RawGoals) ->
+    NewGoals = lists:sublist(Length, RawGoals),
+    {ok, Problem} = setup(DepGraph0, NewGoals),
+    case depselector:solve(DepGraph0, NewGoals) of
+        {ok, {solution, {{state, valid}, {disabled, _Disabled_Count}, {packages, _PackageVersionIds}}}} ->
+            %% This solution still now works, so it probably doesn't include our troublemaker,
+            culprit_search(DepGraph0, RawGoals, Length+1);
+          {ok, {solution,
+              {{state, invalid},
+               {disabled, _Disabled_Count},
+               {packages, PackageVersionIds}} = _Results} = _Solution} ->
+            %% Ok, we've found the first breaking item
+            CulpritRunlistItem = lists:last(NewGoals),
+            Disabled = extract_disabled(Problem, PackageVersionIds),
+            {error, {overconstrained, CulpritRunlistItem, Disabled}}
+    end.
+
+-spec setup(dep_graph(),[constraint()]) -> {ok, [any()]} | {error, term()}. %% TODO Fix type
+setup(DepGraph0, RawGoals) when erlang:length(RawGoals) > 0 ->
     try
 %% Use this to get more debug output...
 %%        depselector:new_problem_with_debug("TEST", gb_trees:size(DepGraph0) + 1),
@@ -249,13 +285,11 @@ primitive_solve({?MODULE, DepGraph0}, RawGoals) when erlang:length(RawGoals) > 0
         Problem = generate_versions(DepGraph0),
         ?debugFmt("~p~n", [Problem]),
         generate_constraints(DepGraph0, RawGoals, Problem),
-        Solution = depselector:solve(),
-        extract_constraints(Solution, Problem)
+        {ok, Problem}
     catch
         throw:{unreachable_package, Name} ->
             {error, {unreachable_package, Name}}
     end.
-
 
 
 
@@ -322,21 +356,10 @@ add_constraint_element_helper(DepPkgName, Constraint, PkgIndex, VersionId, Probl
             throw( {unreachable_package, DepPkgName} )
     end.
 
-extract_constraints({ok, {solution,
-                          {{state, invalid},
-                           {disabled, _Disabled_Count},
-                           {packages, PackageVersionIds}} = Results} = Solution},
-                     Problem) ->
-    ?debugFmt("~p~n",[Solution]),
-    {{state, _}, {disabled, _Disabled_Count}, {packages, PackageVersionIds}} = Results,
-    PackageList = unmap_packed_solution(PackageVersionIds, Problem),
-    {error, PackageList};
-extract_constraints({ok, {solution, Results}} = Solution, Problem) ->
-    ?debugFmt("~p~n",[Solution]),
-    {{state, _}, {disabled, _Disabled_Count}, {packages, PackageVersionIds}} = Results,
-    PackageList = unmap_packed_solution(PackageVersionIds, Problem),
-    {ok, PackageList}.
-
+extract_disabled(Problem, PackageVersionIds) ->
+    [{version_manager:unmap_constraint({PackageId, VersionId}, Problem)} || 
+        {PackageId, DisabledState, VersionId} <- PackageVersionIds,
+        DisabledState = 1 ].
 
 unmap_packed_solution(PackageVersionIds, Problem) ->
     %% The runlist is a synthetic package, and should be filtered out
