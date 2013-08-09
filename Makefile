@@ -48,8 +48,7 @@ compile: solver
 	@$(REBAR) compile
 
 solver:
-	g++ native/gecodeinterface/src/*.cpp -I/opt/gecode/include -L/opt/gecode/lib -Wl,-rpath,/opt/gecode/lib -lstdc++  -lgecodesearch -lgecodeint -lgecodekernel -lgecodesupport -lgecodeminimodel -o priv/solver
-
+	native/gecodeinterface/build
 
 doc:
 	@$(REBAR) doc

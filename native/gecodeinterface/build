@@ -1,0 +1,9 @@
+#!/bin/bash
+PROJ_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd)"
+
+TARGET=${1}
+if [ -z ${TARGET} ]; then
+  TARGET="priv/solver"
+fi
+
+g++ ${PROJ_DIR}/src/*.cpp -I/opt/gecode/include -L/opt/gecode/lib -Wl,-rpath,/opt/gecode/lib -lstdc++  -lgecodesearch -lgecodeint -lgecodekernel -lgecodesupport -lgecodeminimodel -o ${TARGET}

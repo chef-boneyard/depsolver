@@ -1,2 +1,0 @@
-#!/bin/bash
-g++ src/*.cpp -lstdc++  -lgecodesearch -lgecodeint -lgecodekernel -lgecodesupport -lgecodeminimodel -o ../../priv/solver
