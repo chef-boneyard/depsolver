@@ -44,14 +44,18 @@ get-deps:
 	$(REBAR) get-deps
 	$(REBAR) compile
 
-compile:
+compile: solver
 	@$(REBAR) compile
+
+solver:
+	native/gecodeinterface/build
 
 doc:
 	@$(REBAR) doc
 
 clean:
 	@$(REBAR) clean
+	rm -f priv/solver
 
 eunit: compile
 	@$(REBAR) skip_deps=true eunit
