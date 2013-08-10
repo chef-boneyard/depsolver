@@ -85,7 +85,8 @@
          add_packages/2,
          add_package/3,
          add_package_version/3,
-         add_package_version/4]).
+         add_package_version/4,
+         format_error/1]).
 
 -export_type([t/0,
               pkg/0,
@@ -236,16 +237,16 @@ solve({?MODULE, DepGraph0}, RawGoals) when erlang:length(RawGoals) > 0 ->
             {error, {unreachable_package, Name}};
         {ok, Problem} ->
             case depselector:solve() of
-                {ok, {solution,
-                      {{state, invalid},
-                       {disabled, _Disabled_Count},
-                       {packages, _PackageVersionIds}} = _Results} = _Solution} ->
+                {solution,
+                 {{state, invalid},
+                  {disabled, _Disabled_Count},
+                  {packages, _PackageVersionIds}} = _Results} ->
                     %% Find smallest prefix of the runlist that still fails
                     culprit_search(DepGraph0, RawGoals, 1);
-                {ok, {solution,
-                      {{state, valid},
-                       {disabled, _Disabled_Count},
-                       {packages, PackageVersionIds}}}} = _Solution ->
+                {solution,
+                 {{state, valid},
+                  {disabled, _Disabled_Count},
+                  {packages, PackageVersionIds}}} ->
                     {ok, unmap_packed_solution(PackageVersionIds, Problem)}
             end
     end.
@@ -259,21 +260,22 @@ solve({?MODULE, DepGraph0}, RawGoals) when erlang:length(RawGoals) > 0 ->
 %% but we're only changing the runlist. Also, what we're doing with the list prefixes search
 %% probably could be improved, but for the time being we're assuming the runlists are short enough
 %% that quadratic behavior isn't important.
-culprit_search(DepGraph0, RawGoals, Length) when Length < length(RawGoals) ->
-    NewGoals = lists:sublist(Length, RawGoals),
+%%
+%% Technically the length guard shouldn't be needed, since we know the full runlist fails to solve
+culprit_search(DepGraph0, RawGoals, Length) when Length =< length(RawGoals) ->
+    NewGoals = lists:sublist(RawGoals, Length),
     {ok, Problem} = setup(DepGraph0, NewGoals),
-    case depselector:solve(DepGraph0, NewGoals) of
-        {ok, {solution, {{state, valid}, {disabled, _Disabled_Count}, {packages, _PackageVersionIds}}}} ->
+    case depselector:solve() of
+        {solution, {{state, valid}, {disabled, _Disabled_Count}, {packages, _PackageVersionIds}}} ->
             %% This solution still now works, so it probably doesn't include our troublemaker,
             culprit_search(DepGraph0, RawGoals, Length+1);
-          {ok, {solution,
-              {{state, invalid},
-               {disabled, _Disabled_Count},
-               {packages, PackageVersionIds}} = _Results} = _Solution} ->
+        {solution,
+         {{state, invalid},
+          {disabled, _Disabled_Count},
+          {packages, PackageVersionIds}} = _Results} ->
             %% Ok, we've found the first breaking item
-            CulpritRunlistItem = lists:last(NewGoals),
-            Disabled = extract_disabled(Problem, PackageVersionIds),
-            {error, {overconstrained, CulpritRunlistItem, Disabled}}
+            Disabled = extract_disabled(PackageVersionIds, Problem),
+            {error, {overconstrained, NewGoals, Disabled}}
     end.
 
 -spec setup(dep_graph(),[constraint()]) -> {ok, [any()]} | {error, term()}. %% TODO Fix type
@@ -283,7 +285,6 @@ setup(DepGraph0, RawGoals) when erlang:length(RawGoals) > 0 ->
 %%        depselector:new_problem_with_debug("TEST", gb_trees:size(DepGraph0) + 1),
         depselector:new_problem("TEST", gb_trees:size(DepGraph0) + 1),
         Problem = generate_versions(DepGraph0),
-        ?debugFmt("~p~n", [Problem]),
         generate_constraints(DepGraph0, RawGoals, Problem),
         {ok, Problem}
     catch
@@ -356,17 +357,16 @@ add_constraint_element_helper(DepPkgName, Constraint, PkgIndex, VersionId, Probl
             throw( {unreachable_package, DepPkgName} )
     end.
 
-extract_disabled(Problem, PackageVersionIds) ->
-    [{version_manager:unmap_constraint({PackageId, VersionId}, Problem)} || 
+extract_disabled(PackageVersionIds, Problem) ->
+    [version_manager:unmap_constraint({PackageId, VersionId}, Problem) ||
         {PackageId, DisabledState, VersionId} <- PackageVersionIds,
-        DisabledState = 1 ].
+        DisabledState =:= 1 ].
 
 unmap_packed_solution(PackageVersionIds, Problem) ->
     %% The runlist is a synthetic package, and should be filtered out
     [{0,0,0} | PackageVersionIdsReal ] = PackageVersionIds,
     PackageList = [version_manager:unmap_constraint({PackageId, VersionId}, Problem) ||
                       {PackageId, _DisabledState, VersionId} <- PackageVersionIdsReal],
-    ?debugFmt("R ~p~n", [PackageList]),
     PackageList.
 
 %% Parse a string version into a tuple based version
@@ -411,3 +411,42 @@ join_constraints(NewConstraints, ExistingConstraints) ->
     FilteredNewConstraints = [NC || NC <- NewConstraints,
                                     not sets:is_element(NC, ECSet)],
     ExistingConstraints ++ FilteredNewConstraints.
+
+
+format_error({error, {overconstrained, Runlist, Disabled}}) ->
+    erlang:iolist_to_binary(
+      ["Unable to solve constraints, the following solutions were attempted \n\n",
+       format_error_path("    ", {Runlist, Disabled})]);
+format_error({error, {unreachable_package, Name}}) ->
+    erlang:iolist_to_binary( ["Unable to find package", Name, "\n\n"]);
+format_error(E) ->
+    ?debugVal(E).
+
+
+-spec format_error_path(string(), {[{[depsolver:constraint()], [depsolver:pkg()]}],
+                                   [depsolver:constraint()]}) -> iolist().
+format_error_path(CurrentIndent, {Roots, FailingDeps}) ->
+    [CurrentIndent, "Unable to satisfy goal constraint",
+     depsolver_culprit:add_s(Roots), " ", format_roots(Roots),
+     " due to constraint", depsolver_culprit:add_s(FailingDeps), " on ",
+     format_disabled(FailingDeps), "\n"].
+
+format_roots(L) ->
+    join_as_iolist([depsolver_culprit:format_constraint(fix_con(E)) || E <- L]).
+
+
+%% We could certainly get fancier, but the version doesn't necessarily help much...
+format_disabled(Disabled) ->
+    join_as_iolist([App || {App, _Version} <- Disabled]).
+
+
+to_iolist(A) when is_atom(A) ->
+    atom_to_list(A);
+to_iolist(B) when is_binary(B) ->
+    B;
+to_iolist(L) when is_list(L) ->
+   L.
+
+join_as_iolist(L) ->
+    [_ | T] = lists:flatten([ [", ", to_iolist(E)] || E <-L ]),
+    T.

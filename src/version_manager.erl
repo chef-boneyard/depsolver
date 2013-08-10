@@ -111,11 +111,18 @@ map_constraint(DependentPackage, Constraint, #problem{byName=ByName}) ->
             {Index, ConstraintRange}
     end.
 
+-spec unmap_constraint({integer(),integer()}, #problem{}) ->
+                              undefined_package |
+                              {any(), integer() | unused | out_of_range}.
 unmap_constraint({PackageId, VersionId}, #problem{byId=ById}) ->
-    #package{name = PackageName, versionMapper = VersionMapper} = array:get(PackageId, ById),
-    Version = int_to_version(VersionId, VersionMapper),
-    {PackageName, Version}.
-
+    case array:size(ById) of
+        S when PackageId < 0 orelse PackageId >= S ->
+            undefined_package;
+        _ ->
+            #package{name = PackageName, versionMapper = VersionMapper} = array:get(PackageId, ById),
+            Version = int_to_version(VersionId, VersionMapper),
+            {PackageName, Version}
+    end.
 
 %% Version mapping/unmapping to a dense set
 -spec make([vsn()]) -> #cookbook_version_mapper{}.
@@ -127,9 +134,16 @@ make(Versions) ->
 version_to_int(Version, #cookbook_version_mapper{versionList = VersionList}) ->
     search_eq(Version, VersionList).
 
+int_to_version(-1, _)  ->
+    unused;
 int_to_version(Value, #cookbook_version_mapper{versionList = Versions}) ->
-    {Version, _} = array:get(Value, Versions),
-    Version.
+    case array:size(Versions) of
+        S when Value >= S ->
+            out_of_range;
+        _ ->
+            {Version, _} = array:get(Value, Versions),
+            Version
+    end.
 
 parse({V, {A, B}}) when is_tuple(V) andalso size(V) < 4 ->
     {V, {A,B}};

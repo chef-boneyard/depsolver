@@ -31,11 +31,12 @@
 -module(depsolver_culprit).
 
 -export([search/3,
-        format_error/1,
-        format_version/1,
-        format_constraint/1,
-        format_roots/1,
-        format_culprits/1]).
+         add_s/1,
+         format_error/1,
+         format_version/1,
+         format_constraint/1,
+         format_roots/1,
+         format_culprits/1]).
 
 %%============================================================================
 %% Types

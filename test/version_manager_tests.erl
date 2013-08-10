@@ -368,6 +368,7 @@ problem_map_test_() ->
       {"Simple init and fetch of apps, versions comes correct",
        fun() ->
                Problem = make_problem(),
+               ?assertEqual({0,not_found}, version_manager:get_version_id(app1, "0.0",Problem)),
                ?assertEqual({0,0}, version_manager:get_version_id(app1, "0.1",Problem)),
                ?assertEqual({1,0}, version_manager:get_version_id(app2, "0.1",Problem)),
                ?assertEqual({2,1}, version_manager:get_version_id(app3, "0.2",Problem)),
@@ -380,8 +381,17 @@ problem_map_test_() ->
                ?assertEqual({1, {0,2}}, version_manager:map_constraint(app2, {"0.1", gte} ,Problem)),
                ?assertEqual({2, {0,1}}, version_manager:map_constraint(app3, {"0.2", lte}, Problem))
 %% TODO FIXME ?assertEqual({2, {0,2}}, version_manager:map_constraint(app3, {"0", pes} ,Problem))
+       end},
+      {"Simple reverse mapping",
+       fun() ->
+               Problem = make_problem(),
+               ?assertEqual({app1, {0,2}}, version_manager:unmap_constraint({0, 1}, Problem)),
+               ?assertEqual({app2, {0,3}}, version_manager:unmap_constraint({1, 2},Problem)),
+               ?assertEqual({app3, {0,1}}, version_manager:unmap_constraint({2, 0}, Problem)),
+               ?assertEqual({app3, out_of_range}, version_manager:unmap_constraint({2, 4}, Problem)),
+               ?assertEqual({app1, unused}, version_manager:unmap_constraint({0, -1}, Problem)),
+               ?assertEqual(undefined_package, version_manager:unmap_constraint({3, 0}, Problem))
        end}
-
      ]}.
 
 make_problem() ->

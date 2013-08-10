@@ -35,21 +35,20 @@ all_test_() ->
      end,
      fun(_) -> application:stop(depsolver) end,
      [
-      {?MODULE, first}, %% OK
-      {?MODULE, second}, %% OK
-      {?MODULE, third}, %% OK
-      %% {?MODULE, fail}
-
-      {?MODULE, conflicting_passing}, %% OK
-      {?MODULE, circular_dependencies}, %% OK
-      %% {?MODULE, conflicting_failing}, %% TODO
-      {?MODULE, pessimistic_major_minor_patch}, %% OK
-      {?MODULE, pessimistic_major_minor} %% OK
-      %%{?MODULE, binary}
-      %% {?MODULE, doesnt_exist},
-      %% {?MODULE, not_new_enough},
-      %% {?MODULE, impossible_dependency},
-      %% {?MODULE, missing_via_culprit_search},
+      {?MODULE, first},
+      {?MODULE, second},
+      {?MODULE, third},
+      {?MODULE, fail},
+      {?MODULE, conflicting_passing},
+      {?MODULE, circular_dependencies},
+      {?MODULE, conflicting_failing},
+      {?MODULE, pessimistic_major_minor_patch},
+      {?MODULE, pessimistic_major_minor},
+      {?MODULE, binary},
+      {?MODULE, doesnt_exist},
+      {?MODULE, not_new_enough},
+      {?MODULE, impossible_dependency},
+      {?MODULE, missing_via_culprit_search}
       %% {generator, ?MODULE, format},
       %% {generator, ?MODULE, missing2}
      ]
@@ -170,19 +169,11 @@ fail() ->
                                                   {"0.2", []},
                                                   {"0.3", []}]}]),
 
-    Ret = norm(depsolver_gecode:solve(Dom0, [{app1, "0.1"}])),
+    Ret = depsolver_gecode:solve(Dom0, [{app1, "0.1"}]),
     %% We do this to make sure all errors can be formated.
-    ?debugVal(Ret),
     _ = depsolver_gecode:format_error(Ret),
-    
-    Expected = norm({error,
-                     [{[{[{app1,{{0,1},{[],[]}}}],
-                         [{app1,{{0,1},{[],[]}}},
-                          [[{app2,{{0,2},{[],[]}}}]]]}],
-                       [{{app2,{{0,2},{[],[]}}},
-                         [{app3,{{0,1},{[],[]}}}]},
-                        {{app1,{{0,1},{[],[]}}},
-                         [{app3,{{0,2},{[],[]}},gte}]}]}]}),
+
+    Expected = {error,{overconstrained,[{app1,"0.1"}],[{app1,{0,3}}]}},
     ?assertEqual(Expected, Ret).
 
 conflicting_passing() ->
@@ -265,18 +256,9 @@ conflicting_failing() ->
                                           {app5, [{"2.0.0", []},
                                                   {"6.0.0", []}]}]),
     Ret = depsolver_gecode:solve(Dom0, [app1, app3]),
-    _ = depsolver_gecode:format_error(Ret),
-    ?assertMatch({error,
-                  [{[{[app1],
-                      [{app1,{{3,0},{[],[]}}},
-                       [[{app4,{{5,0,0},{[],[]}}}],
-                        [{app2,{{0,0,1},{[],[]}}},[[{app4,{{5,0,0},{[],[]}}}]]]]]},
-                     {[app3],
-                      [{app3,{{0,1,0},{[],[]}}},[[{app5,{{6,0,0},{[],[]}}}]]]}],
-                    [{{app4,{{5,0,0},{[],[]}}},[{app5,{{2,0,0},{[],[]}}}]},
-                     {{app1,{{3,0},{[],[]}}},[{app5,{{2,0,0},{[],[]}},'='}]}]}]},
-                 Ret).
 
+    _ = depsolver_gecode:format_error(Ret),
+    ?assertMatch(Ret,{error,{overconstrained,[app1,app3],[{app5,{6,0,0}}]}} ).
 
 pessimistic_major_minor_patch() ->
 
@@ -400,14 +382,15 @@ binary() ->
 
     Dom0 = depsolver_gecode:add_packages(depsolver_gecode:new_graph(), World),
 
-    Ret = norm(depsolver_gecode:solve(Dom0, [<<"foo">>])),
+    Ret = depsolver_gecode:solve(Dom0, [<<"foo">>]),
 
-    Expected = norm({error,
-                     [{[{[<<"foo">>],[{<<"foo">>,{{1,2,3},{[],[]}}}]}],
-                       [{{<<"foo">>,{{1,2,3},{[],[]}}},
-                         [{<<"bar">>,{{2,0,0},{[],[]}},gt}]}]}]}),
+    %% Old solver gave
+    %% <<"Unable to solve constraints, the following solutions were attempted \n\n    Unable to satisfy goal constraint foo due to constraint on bar\n        (foo = 1.2.3) -> (bar > 2.0.0)\n">>
+
+    Expected = {error,{overconstrained,[<<"foo">>], [{<<"foo">>,unused}]}},
 
     _ = depsolver_gecode:format_error(Ret),
+
     ?assertEqual(Expected, Ret).
 
 %%
@@ -446,10 +429,7 @@ not_new_enough() ->
     World = depsolver_gecode:add_packages(depsolver_gecode:new_graph(), Constraints),
     Ret = depsolver_gecode:solve(World, [<<"foo">>]),
     _ = depsolver_gecode:format_error(Ret),
-    ?assertMatch({error,
-                  [{[{[<<"foo">>],[{<<"foo">>,{{1,2,3},{[],[]}}}]}],
-                    [{{<<"foo">>,{{1,2,3},{[],[]}}},
-                      [{<<"bar">>,{{2,0,0},{[],[]}},gt}]}]}]}, Ret).
+    ?assertMatch({error,{overconstrained,[<<"foo">>],[{<<"bar">>,{2,0,0}}]}}, Ret).
 
 %%
 %% circular deps are bad
@@ -467,10 +447,7 @@ impossible_dependency() ->
                                            {<<"bar">>, [{<<"2.0.0">>, [{ <<"foo">>, <<"3.0.0">>, gt}]}]}]),
     Ret = depsolver_gecode:solve(World, [<<"foo">>]),
     _ = depsolver_gecode:format_error(Ret),
-    ?assertMatch({error,
-                  [{[{[<<"foo">>],[{<<"foo">>,{{1,2,3},{[],[]}}}]}],
-                    [{{<<"foo">>,{{1,2,3},{[],[]}}},
-                      [{<<"bar">>,{{2,0,0},{[],[]}},gt}]}]}]}, Ret).
+    ?assertMatch({error,{overconstrained,[<<"foo">>],[{<<"foo">>,unused}]}}, Ret).
 
 %%
 %% Formatting tests
