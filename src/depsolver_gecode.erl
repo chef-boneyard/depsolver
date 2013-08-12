@@ -280,7 +280,7 @@ culprit_search(DepGraph0, RawGoals, Length) when Length =< length(RawGoals) ->
           {packages, PackageVersionIds}} = _Results} ->
             %% Ok, we've found the first breaking item
             Disabled = extract_disabled(PackageVersionIds, Problem),
-            {error, {overconstrained, NewGoals, Disabled}}
+            {error, {no_solution, NewGoals, Disabled}}
     end.
 
 -spec setup(dep_graph(),[constraint()]) -> {ok, [any()]} | {error, term()}. %% TODO Fix type
