@@ -227,7 +227,7 @@ add_package_version({?MODULE, Dom0}, RawPkg, RawVsn, RawPkgConstraints) ->
 add_package_version(State, Pkg, Vsn) ->
     add_package_version(State, Pkg, Vsn, []).
 
-solve({?MODULE, DepGraph0}, RawGoals, Timeout) when erlang:length(RawGoals) > 0 ->
+solve({?MODULE, DepGraph0}, RawGoals, _Timeout) when erlang:length(RawGoals) > 0 ->
     %% TODO: Implement timeout behavior here
     solve({?MODULE, DepGraph0}, RawGoals).
 
