@@ -81,6 +81,7 @@
 %% Public Api
 -export([
          new_graph/0,
+         solve/3,
          solve/2,
          add_packages/2,
          add_package/3,
@@ -225,6 +226,10 @@ add_package_version({?MODULE, Dom0}, RawPkg, RawVsn, RawPkgConstraints) ->
 -spec add_package_version(t(),pkg_name(),raw_vsn()) -> t().
 add_package_version(State, Pkg, Vsn) ->
     add_package_version(State, Pkg, Vsn, []).
+
+solve({?MODULE, DepGraph0}, RawGoals, _Timeout) when erlang:length(RawGoals) > 0 ->
+    %% TODO: Implement timeout behavior here
+    solve({?MODULE, DepGraph0}, RawGoals).
 
 %% @doc Given a set of goals (in the form of constrains) find a set of packages
 %% and versions that satisfy all constraints. If no solution can be found then
