@@ -38,20 +38,40 @@ endif
 
 .PHONY: all compile doc clean eunit dialyzer typer shell distclean get-deps
 
+# solver flags
+CC=g++
+SOLVER_PATH=native/gecodeinterface/src
+SOLVER_CFLAGS=-c -I/opt/gecode/include
+SOLVER_LDFLAGS=-L/opt/gecode/lib -rpath=/opt/gecode/lib -lstdc++ -lgecodesearch -lgecodeint -lgecodekernel -lgecodesupport -lgecodeminimodel
+SOLVER_SOURCES=$(wildcard $(SOLVER_PATH)/*.cpp)
+SOLVER_OBJECTS=$(SOLVER_SOURCES:.cpp=.o)
+SOLVER_BIN=priv/solver
+
 all: compile eunit dialyzer
 
 get-deps:
 	$(REBAR) get-deps
 	$(REBAR) compile
 
-compile:
+compile: solver
 	@$(REBAR) compile
+
+solver: $(SOLVER_BIN)
+
+$(SOLVER_BIN): $(SOLVER_OBJECTS)
+	$(CC) $(SOLVER_LDFLAGS) $(SOLVER_OBJECTS) -o $@
+
+.cpp.o:
+	$(CC) $(SOLVER_CFLAGS) $< -o $@
 
 doc:
 	@$(REBAR) doc
 
-clean:
+clean: clean-solver
 	@$(REBAR) clean
+
+clean-solver:
+	rm -f $(SOLVER_BIN) $(SOLVER_PATH)/*.o
 
 eunit: compile
 	@$(REBAR) skip_deps=true eunit

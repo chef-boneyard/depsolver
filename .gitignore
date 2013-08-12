@@ -5,3 +5,6 @@
 *.plt
 deps/*
 priv/solver
+native/geocodeinterface/lib
+*.o
+/machine_info
