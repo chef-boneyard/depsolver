@@ -171,7 +171,7 @@ fail() ->
     %% We do this to make sure all errors can be formated.
     _ = depsolver_gecode:format_error(Ret),
 
-    Expected = {error,{overconstrained,[{app1,"0.1"}],[{app1,{0,3}}]}},
+    Expected = {error,{no_solution,[{app1,"0.1"}],[{app1,{0,3}}]}},
     ?assertEqual(Expected, Ret).
 
 conflicting_passing() ->
@@ -256,7 +256,7 @@ conflicting_failing() ->
     Ret = depsolver_gecode:solve(Dom0, [app1, app3]),
 
     _ = depsolver_gecode:format_error(Ret),
-    ?assertMatch(Ret,{error,{overconstrained,[app1,app3],[{app5,{6,0,0}}]}} ).
+    ?assertMatch(Ret,{error,{no_solution,[app1,app3],[{app5,{6,0,0}}]}} ).
 
 pessimistic_major_minor_patch() ->
 
@@ -385,7 +385,7 @@ binary() ->
     %% Old solver gave
     %% <<"Unable to solve constraints, the following solutions were attempted \n\n    Unable to satisfy goal constraint foo due to constraint on bar\n        (foo = 1.2.3) -> (bar > 2.0.0)\n">>
 
-    Expected = {error,{overconstrained,[<<"foo">>], [{<<"foo">>,unused}]}},
+    Expected = {error,{no_solution,[<<"foo">>], [{<<"foo">>,unused}]}},
 
     _ = depsolver_gecode:format_error(Ret),
 
@@ -427,7 +427,7 @@ not_new_enough() ->
     World = depsolver_gecode:add_packages(depsolver_gecode:new_graph(), Constraints),
     Ret = depsolver_gecode:solve(World, [<<"foo">>]),
     _ = depsolver_gecode:format_error(Ret),
-    ?assertMatch({error,{overconstrained,[<<"foo">>],[{<<"bar">>,{2,0,0}}]}}, Ret).
+    ?assertMatch({error,{no_solution,[<<"foo">>],[{<<"bar">>,{2,0,0}}]}}, Ret).
 
 %%
 %% circular deps are bad
@@ -445,7 +445,7 @@ impossible_dependency() ->
                                            {<<"bar">>, [{<<"2.0.0">>, [{ <<"foo">>, <<"3.0.0">>, gt}]}]}]),
     Ret = depsolver_gecode:solve(World, [<<"foo">>]),
     _ = depsolver_gecode:format_error(Ret),
-    ?assertMatch({error,{overconstrained,[<<"foo">>],[{<<"foo">>,unused}]}}, Ret).
+    ?assertMatch({error,{no_solution,[<<"foo">>],[{<<"foo">>,unused}]}}, Ret).
 
 %%
 %% Formatting tests
