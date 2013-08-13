@@ -42,7 +42,7 @@ endif
 CC=g++
 SOLVER_PATH=native/gecodeinterface/src
 SOLVER_CFLAGS=-c -I/opt/gecode/include
-SOLVER_LDFLAGS=-L/opt/gecode/lib -rpath=/opt/gecode/lib -lstdc++ -lgecodesearch -lgecodeint -lgecodekernel -lgecodesupport -lgecodeminimodel
+SOLVER_LDFLAGS=-L/opt/gecode/lib -Wl,-rpath,/opt/gecode/lib -lstdc++ -lgecodesearch -lgecodeint -lgecodekernel -lgecodesupport -lgecodeminimodel
 SOLVER_SOURCES=$(wildcard $(SOLVER_PATH)/*.cpp)
 SOLVER_OBJECTS=$(SOLVER_SOURCES:.cpp=.o)
 SOLVER_BIN=priv/solver
