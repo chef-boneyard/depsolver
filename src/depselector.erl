@@ -48,6 +48,7 @@
 
 %% States
 -export([ready/2,
+         resetting/2,
          collecting/2,
          collecting/3,
          solving/2
@@ -175,11 +176,16 @@ collecting({update, Action, Args}, #state{problem_params = Params} = State) ->
 collecting({test_action, Action}, State) ->
     do_test_action(Action, collecting, State).
 
+
 collecting(solve, From, #state{port = Port} = State) ->
     port_command(Port, ?RESET_SEQUENCE),
     % note that the next_state response means our caller is waiting for us to
     % eventually reply via gen_fsm:reply/2 (or timeout, whichever occurs first)
-    {next_state, resetting, State#state{reply_to = From}}.
+    {next_state, resetting, State#state{reply_to = From}, ?PORT_TIMEOUT}.
+
+resetting(timeout, State) ->
+    % We told solver to reset and it didn't get back to us.  Shut down.
+    {stop, {error, reset_timeout}, State}.
 
 solving({test_action, Action}, State) ->
     do_test_action(Action, solving, State);
@@ -302,7 +308,7 @@ close_port(_ ,Port) ->
 
 kill_port_os_proc(undefined) -> ok;
 kill_port_os_proc(PID) ->
-    os:cmd(lists:flatten(["kill -9 ", integer_to_list(PID)])).
+    os:cmd(["kill -9 ", integer_to_list(PID)]).
 
 send_command(Port, Command) ->
     port_command(Port, Command),
