@@ -48,7 +48,8 @@ all_test_() ->
       {?MODULE, doesnt_exist},
       {?MODULE, not_new_enough},
       {?MODULE, impossible_dependency},
-      {?MODULE, missing_via_culprit_search}
+      {?MODULE, missing_via_culprit_search},
+      {?MODULE, complex_dependency}
       %% {generator, ?MODULE, format},
       %% {generator, ?MODULE, missing2}
      ]
@@ -362,8 +363,7 @@ missing() ->
     _ = depsolver_gecode:format_error(Ret1),
     ?assertMatch({error,{unreachable_package,app4}}, Ret1),
 
-    %% TODO: Re-enable once we have the abort logic for solver sorted.
-    Ret2 = Ret1,%    Ret2 = depsolver_gecode:solve(Dom0, [{app1, "0.1"}]),
+    Ret2 = depsolver_gecode:solve(Dom0, [{app1, "0.1"}]),
     %%    _ = depsolver_gecode:format_error(Ret2),
     ?assertMatch({error,_}, Ret2).
 
@@ -373,7 +373,8 @@ missing_via_culprit_search() ->
     Dom0 = depsolver_gecode:add_packages(depsolver_gecode:new_graph(), World),
     Ret1 = depsolver_gecode:solve(Dom0, [<<"app1">>,<<"app2">>]),
     _ = depsolver_gecode:format_error(Ret1),
-    ?assertMatch({error,{unreachable_package,<<"app1::oops">>}}, Ret1).
+    ?assertEqual({error,{no_solution,[<<"app1">>,<<"app2">>],
+                         [{<<"app1::oops">>,out_of_range}]}}, Ret1).
 
 binary() ->
 
@@ -449,6 +450,24 @@ impossible_dependency() ->
     _ = depsolver_gecode:format_error(Ret),
     ?assertMatch({error,{no_solution,[<<"foo">>],[{<<"foo">>,unused}]}}, Ret).
 
+
+complex_dependency() ->
+    World = [{<<"foo">>, [{<<"1.2.3">>, [{ <<"bar">>, <<"1.0.0">>},
+                                         { <<"buzz">>, <<"1.0.0">>}]}]},
+             {<<"bar">>, [{<<"1.0.0">>, [{ <<"baz">>, <<"1.0.0">>}]}]},
+             {<<"buzz">>, [{<<"1.0.0">>, [{<<"baz">>, <<"1.2.0">>, gt}]},
+                           {<<"2.0.0">>, [{<<"baz">>, <<"1.0.0">>}]}]},
+             {<<"ack">>, [{<<"1.0.0">>, [{<<"foobar">>, <<"1.0.0">>}]}]},
+             {<<"baz">>, [{<<"1.0.0">>, []},
+                          {<<"2.0.0">>, []}]}
+            ],
+    Dom0 = depsolver_gecode:add_packages(depsolver_gecode:new_graph(), World),
+    Ret = depsolver_gecode:solve(Dom0, [<<"foo">>]),
+    ?debugFmt("~p~n", [Ret]),
+    _ = depsolver_gecode:format_error(Ret),
+    ?assertMatch({error,{no_solution,[<<"foo">>],[{<<"buzz">>,{2,0,0}}]}}, Ret).
+
+
 %%
 %% Formatting tests
 %%
@@ -502,24 +521,25 @@ format() ->
 
 missing2() ->
     %% noapp is missing, but referenced.
-    Dom0 = depsolver_gecode:add_packages(depsolver_gecode:new_graph(), [{app1, [
-                                                                                %% direct dep on noapp
-                                                                                {"0.1", [{noapp, "0.1", '>='}]},
-                                                                                %% exact dep on app2 which depends on noapp
-                                                                                {"0.2", [{app2, "0.1"}]},
-                                                                                %% will take any version of app2
-                                                                                {"0.3", [{app2, "0.1", '>='}]},
-                                                                                {"0.4", [{app2, "0.3", '<='}]}
-                                                                               ]},
-                                                                        {app2, [{"0.1", [{noapp, "0.1"}]},
-                                                                                {"0.2",[]},
-                                                                                {"0.3", [{app3, "0.2"}]},
-                                                                                {"0.4", []}]},
-                                                                        {app3, [{"0.1", []},
-                                                                                {"0.2", [{noapp, "0.1"}]},
-                                                                                {"0.3", []}]},
-                                                                        {app4, [{"0.1", [{app3, "100"}]}]}
-                                                                       ]),
+    Dom0 = depsolver_gecode:add_packages(depsolver_gecode:new_graph(),
+                                         [{app1, [
+                                                  %% direct dep on noapp
+                                                  {"0.1", [{noapp, "0.1", '>='}]},
+                                                  %% exact dep on app2 which depends on noapp
+                                                  {"0.2", [{app2, "0.1"}]},
+                                                  %% will take any version of app2
+                                                  {"0.3", [{app2, "0.1", '>='}]},
+                                                  {"0.4", [{app2, "0.3", '<='}]}
+                                                 ]},
+                                          {app2, [{"0.1", [{noapp, "0.1"}]},
+                                                  {"0.2",[]},
+                                                  {"0.3", [{app3, "0.2"}]},
+                                                  {"0.4", []}]},
+                                          {app3, [{"0.1", []},
+                                                  {"0.2", [{noapp, "0.1"}]},
+                                                  {"0.3", []}]},
+                                          {app4, [{"0.1", [{app3, "100"}]}]}
+                                         ]),
 
     [
      %% should fail because direct dep not found
