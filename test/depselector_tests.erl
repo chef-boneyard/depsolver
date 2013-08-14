@@ -24,96 +24,96 @@
 
 -compile(export_all).
 
-
 -include_lib("eunit/include/eunit.hrl").
 %%===========================================================================
 %% Tests
 %%============================================================================
+%%
 
-% Each of these tests assumes a fresh solver state and
-% that the process is available for use.
 clean_test_() ->
+    common:startup(),
     {foreach,
      fun() ->
-             error_logger:delete_report_handler(error_logger_tty_h),
-             application:start(depsolver)
+        common:add_depselector_pool(1),
+        pooler:take_member(depselector)
      end,
-     fun(_) -> application:stop(depsolver) end,
+     fun(Pid) ->
+        % return with "fail" to force the proc to die -
+        % our solver may be intentionally left in a hung
+        % state by a test.
+        pooler:return_member(depselector, Pid, fail),
+        pooler:rm_pool(depselector)
+     end,
      [
-       {?MODULE, basic_solve},
-       {?MODULE, add_dep},
-       {?MODULE, abort_in_problem},
-       {?MODULE, too_many_packages},
-       {?MODULE, not_enough_packages},
-       {?MODULE, new_problem_from_dirty_state},
-       {?MODULE, error_recovery}
+        fun basic_solve/1,
+        fun add_dep/1,
+        fun abort_in_solve/1,
+        fun abort_in_problem/1,
+        fun too_many_packages/1,
+        fun not_enough_packages/1,
+        fun new_problem_from_dirty_state/1,
+        fun error_recovery/1
      ]
     }.
 
-basic_solve() ->
-    depselector:new_problem("TEST", 1),
-    add_packages(1),
-    depselector:mark_package_required(0),
-    ?assertMatch({solution,{{state,valid},{disabled,0},{packages,[{0,0,0}]}}},
-                  depselector:solve()).
-add_dep() ->
-    depselector:new_problem("TEST", 1),
-    add_packages(1),
+
+basic_solve(Pid) ->
+    depselector:new_problem(Pid, "TEST", 1),
+    add_packages(Pid, 1),
+    depselector:mark_package_required(Pid, 0),
+    ?_assertMatch({solution,{{state,valid},{disabled,0},{packages,[{0,0,0}]}}},
+                 depselector:solve(Pid)).
+add_dep(Pid) ->
+    depselector:new_problem(Pid, "TEST", 1),
+    add_packages(Pid, 1),
     % This shouldn't cause error or failure
-    depselector:add_version_constraint(0, 0, 0, 0, 0),
-    depselector:mark_package_required(0),
-    ?assertMatch({solution,{{state,valid},{disabled,0},{packages,[{0,0,0}]}}},
-                  depselector:solve()).
+    depselector:add_version_constraint(Pid, 0, 0, 0, 0, 0),
+    depselector:mark_package_required(Pid, 0),
+    ?_assertMatch({solution,{{state,valid},{disabled,0},{packages,[{0,0,0}]}}},
+                  depselector:solve(Pid)).
 
 
-new_problem_from_dirty_state() ->
-    depselector:new_problem("TEST", 1),
-    add_packages(1),
+new_problem_from_dirty_state(Pid) ->
+    depselector:new_problem(Pid, "TEST", 1),
+    add_packages(Pid, 1),
     % simulate the caller crashing before it can request a solve,
     % then a subsequent use of this FSM for another solve.
-    basic_solve().
+    basic_solve(Pid).
 
 
-abort_in_problem() ->
-    depselector:new_problem("TEST", 1),
-    depselector:abort(),
-    ?assertEqual(depselector:is_ready(), true).
+abort_in_problem(Pid) ->
+    depselector:new_problem(Pid, "TEST", 1),
+    depselector:abort(Pid),
+    ?_assertEqual(depselector:is_ready(Pid), true).
 
+abort_in_solve(Pid) ->
+    depselector:new_problem(Pid, "TEST", 1),
+    % This hangs the solver and makes the FSM think it's
+    % waiting for a solution response.
+    depselector:force_hang(Pid),
+    ?_assertEqual(depselector:abort(Pid), {error, busy}).
 
-too_many_packages() ->
-    depselector:new_problem("TEST", 1),
-    add_packages(2),
-    ?assertMatch({error, "already added max packages"},
-                  depselector:solve()),
-    ?assertEqual(depselector:is_ready(), true).
+too_many_packages(Pid) ->
+    depselector:new_problem(Pid, "TEST", 1),
+    add_packages(Pid, 2),
+    ?_assertMatch({error, {solve_fail, "already added max packages"}},
+                  depselector:solve(Pid)).
 
-not_enough_packages() ->
-    depselector:new_problem("TEST", 2),
-    add_packages(1),
-    depselector:mark_package_required(0),
-    ?assertMatch({error,"package count did not match expected."}, depselector:solve()),
-    ?assertEqual(depselector:is_ready(), true).
+not_enough_packages(Pid) ->
+    depselector:new_problem(Pid, "TEST", 2),
+    add_packages(Pid, 1),
+    depselector:mark_package_required(Pid, 0),
+    ?_assertMatch({error,{solve_fail, "package count did not match expected."} }, depselector:solve(Pid)).
 
-% TODO essentially we want to test recovery for each possible error
-% condition that we're testing elsewhere - let's factor out error
-% condition creation.
+error_recovery(Pid) ->
+    depselector:new_problem(Pid, "TEST", 1),
+    add_packages(Pid, 2),
+    depselector:solve(Pid),
+    ?_assertEqual(depselector:is_ready(Pid), true).
 
-error_recovery() ->
-    depselector:new_problem("TEST", 1),
-    add_packages(2),
-    depselector:solve(),
-    ?assertEqual(depselector:is_ready(), true).
-
-wait_for_ready_test() ->
-    application:start(depsolver),
-    ?assertEqual(depselector:acquire(), true),
-    application:stop(depsolver).
-
-
-%%%%
-%%%
-add_packages(0) -> ok;
-add_packages(N) ->
-    depselector:add_package(0, 0, 0),
-    add_packages(N - 1).
+%% some helpers
+add_packages(_Pid, 0) -> ok;
+add_packages(Pid, N) ->
+    depselector:add_package(Pid, 0, 0, 0),
+    add_packages(Pid, N - 1).
 

@@ -235,8 +235,8 @@ solve({?MODULE, DepGraph0}, RawGoals) when erlang:length(RawGoals) > 0 ->
     case setup(DepGraph0, RawGoals) of
         {error, {unreachable_package, Name}} ->
             {error, {unreachable_package, Name}};
-        {ok, Problem} ->
-            case depselector:solve() of
+        {ok, Pid, Problem} ->
+            case solve_and_release(Pid) of
                 {solution,
                  {{state, invalid},
                   {disabled, _Disabled_Count},
@@ -247,7 +247,11 @@ solve({?MODULE, DepGraph0}, RawGoals) when erlang:length(RawGoals) > 0 ->
                  {{state, valid},
                   {disabled, _Disabled_Count},
                   {packages, PackageVersionIds}}} ->
-                    {ok, unmap_packed_solution(PackageVersionIds, Problem)}
+                    {ok, unmap_packed_solution(PackageVersionIds, Problem)};
+                {solution, none} ->
+                   {error, no_solution};
+                {error, Reason} ->
+                   {error, Reason}
             end
     end.
 
@@ -264,8 +268,8 @@ solve({?MODULE, DepGraph0}, RawGoals) when erlang:length(RawGoals) > 0 ->
 %% Technically the length guard shouldn't be needed, since we know the full runlist fails to solve
 culprit_search(DepGraph0, RawGoals, Length) when Length =< length(RawGoals) ->
     NewGoals = lists:sublist(RawGoals, Length),
-    {ok, Problem} = setup(DepGraph0, NewGoals),
-    case depselector:solve() of
+    {ok, Pid, Problem} = setup(DepGraph0, NewGoals),
+    case solve_and_release(Pid) of
         {solution, {{state, valid}, {disabled, _Disabled_Count}, {packages, _PackageVersionIds}}} ->
             %% This solution still now works, so it probably doesn't include our troublemaker,
             culprit_search(DepGraph0, RawGoals, Length+1);
@@ -278,36 +282,54 @@ culprit_search(DepGraph0, RawGoals, Length) when Length =< length(RawGoals) ->
             {error, {overconstrained, NewGoals, Disabled}}
     end.
 
+solve_and_release(Pid) ->
+    Solution = depselector:solve(Pid),
+    release_pool_worker(Solution, Pid),
+    Solution.
+
+release_pool_worker({error, {timeout, _Where}}, Pid) ->
+    pooler:return_member(depselector, Pid, fail);
+release_pool_worker(_Solution, Pid) ->
+    pooler:return_member(depselector, Pid, ok).
+
 -spec setup(dep_graph(),[constraint()]) -> {ok, [any()]} | {error, term()}. %% TODO Fix type
 setup(DepGraph0, RawGoals) when erlang:length(RawGoals) > 0 ->
+    case pooler:take_member(depselector) of
+        error_no_members ->
+            {error, {no_depsolver_workers}};
+        Pid ->
+            setup(Pid, DepGraph0, RawGoals)
+    end.
+
+setup(Pid, DepGraph0, RawGoals) ->
     try
-%% Use this to get more debug output...
-%%        depselector:new_problem_with_debug("TEST", gb_trees:size(DepGraph0) + 1),
-        depselector:new_problem("TEST", gb_trees:size(DepGraph0) + 1),
-        Problem = generate_versions(DepGraph0),
-        generate_constraints(DepGraph0, RawGoals, Problem),
-        {ok, Problem}
+        %% Use this to get more debug output...
+        %% depselector:new_problem_with_debug("TEST", gb_trees:size(DepGraph0) + 1),
+        depselector:new_problem(Pid, "TEST", gb_trees:size(DepGraph0) + 1),
+        Problem = generate_versions(Pid, DepGraph0),
+        generate_constraints(Pid, DepGraph0, RawGoals, Problem),
+        {ok, Pid, Problem}
     catch
         throw:{unreachable_package, Name} ->
+            pooler:return_member(depselector, Pid, ok),
             {error, {unreachable_package, Name}}
     end.
 
 
-
 %% Instantiate versions
-generate_versions(DepGraph0) ->
+generate_versions(Pid, DepGraph0) ->
     Versions0 = version_manager:new(),
     %% the runlist is treated as a virtual package.
     Versions1 = version_manager:add_package(?RUNLIST, [?RUNLIST_VERSION], Versions0),
-    depselector:add_package(0,0,0),
-    depselector:mark_package_required(0),
+    depselector:add_package(Pid, 0,0,0),
+    depselector:mark_package_required(Pid, 0),
 
     %% Add all the other packages
-    add_versions_for_package(gb_trees:next(gb_trees:iterator(DepGraph0)), Versions1).
+    add_versions_for_package(Pid, gb_trees:next(gb_trees:iterator(DepGraph0)), Versions1).
 
-add_versions_for_package(none, Acc) ->
+add_versions_for_package(_Pid, none, Acc) ->
     Acc;
-add_versions_for_package({PkgName, VersionConstraints, Iterator}, Acc) ->
+add_versions_for_package(Pid, {PkgName, VersionConstraints, Iterator}, Acc) ->
     {Versions, _} = lists:unzip(VersionConstraints),
     NAcc = version_manager:add_package(PkgName, Versions, Acc),
     %% -1 denotes the possibility of an unused package.
@@ -317,42 +339,43 @@ add_versions_for_package({PkgName, VersionConstraints, Iterator}, Acc) ->
     %% can be -1, and hence unused.
     MinVersion = -1,
     MaxVersion = length(Versions) - 1,
-    depselector:add_package(MinVersion, MaxVersion, MaxVersion),
-    add_versions_for_package(gb_trees:next(Iterator), NAcc).
+    depselector:add_package(Pid, MinVersion, MaxVersion, MaxVersion),
+    add_versions_for_package(Pid, gb_trees:next(Iterator), NAcc).
 
 
 %% Constraints for each version
-generate_constraints(DepGraph, RawGoals, Problem) ->
+generate_constraints(Pid, DepGraph, RawGoals, Problem) ->
     %% The runlist package is a synthetic package
-    add_constraints_for_package(?RUNLIST, [{ ?RUNLIST_VERSION, RawGoals }], Problem),
-    gb_trees:map(fun(N,C) -> add_constraints_for_package(N,C,Problem) end, DepGraph).
+    add_constraints_for_package(Pid, ?RUNLIST, [{ ?RUNLIST_VERSION, RawGoals }], Problem),
+    gb_trees:map(fun(N,C) -> add_constraints_for_package(Pid, N,C,Problem) end, DepGraph).
 
-add_constraints_for_package(PkgName, VersionConstraints, Problem) ->
+add_constraints_for_package(Pid, PkgName, VersionConstraints, Problem) ->
     AddVersionConstraint =
         fun(Version, Constraints) ->
                 {PkgIndex, VersionId} = version_manager:get_version_id(PkgName, Version, Problem),
-                [ add_constraint_element(Constraint, PkgIndex, VersionId, Problem) || Constraint <- Constraints]
+                [ add_constraint_element(Pid, Constraint, PkgIndex, VersionId, Problem) || Constraint <- Constraints]
         end,
     [AddVersionConstraint(PkgVersion, ConstraintList) || {PkgVersion, ConstraintList} <- VersionConstraints].
 
-add_constraint_element({DepPkgName, Version}, PkgIndex, VersionId, Problem) ->
-    add_constraint_element({DepPkgName, Version, eq}, PkgIndex, VersionId, Problem);
-add_constraint_element({DepPkgName, DepPkgVersion, Type}, PkgIndex, VersionId, Problem) ->
+add_constraint_element(Pid, {DepPkgName, Version}, PkgIndex, VersionId, Problem) ->
+    add_constraint_element(Pid, {DepPkgName, Version, eq}, PkgIndex, VersionId, Problem);
+add_constraint_element(Pid, {DepPkgName, DepPkgVersion, Type}, PkgIndex, VersionId, Problem) ->
 %%    ?debugFmt("DP: ~p C: ~p ~p~n", [DepPkgName, DepPkgVersion, Type]),
-    add_constraint_element_helper(DepPkgName, {DepPkgVersion, Type}, PkgIndex, VersionId, Problem);
-add_constraint_element({DepPkgName, DepPkgVersion1, DepPkgVersion2, Type}, PkgIndex, VersionId, Problem) ->
+    add_constraint_element_helper(Pid, DepPkgName, {DepPkgVersion, Type}, PkgIndex, VersionId, Problem);
+add_constraint_element(Pid, {DepPkgName, DepPkgVersion1, DepPkgVersion2, Type}, PkgIndex, VersionId, Problem) ->
 %%    ?debugFmt("DP: ~p C: ~p ~p ~p~n", [DepPkgName, DepPkgVersion1, DepPkgVersion2, Type]),
-    add_constraint_element_helper(DepPkgName, {DepPkgVersion1, DepPkgVersion2, Type},
+    add_constraint_element_helper(Pid, DepPkgName, {DepPkgVersion1, DepPkgVersion2, Type},
                                   PkgIndex, VersionId, Problem);
-add_constraint_element(DepPkgName, PkgIndex, VersionId, Problem) when not is_tuple(DepPkgName) ->
+add_constraint_element(Pid, DepPkgName, PkgIndex, VersionId, Problem) when not is_tuple(DepPkgName) ->
 %%    ?debugFmt("DP: ~p C: ~p ~n", [DepPkgName, any]),
-    add_constraint_element_helper(DepPkgName, any, PkgIndex, VersionId, Problem).
+    add_constraint_element_helper(Pid, DepPkgName, any, PkgIndex, VersionId, Problem).
 
-add_constraint_element_helper(DepPkgName, Constraint, PkgIndex, VersionId, Problem) ->
+add_constraint_element_helper(Pid, DepPkgName, Constraint, PkgIndex, VersionId, Problem) ->
     case version_manager:map_constraint(DepPkgName, Constraint, Problem) of
         {DepPkgIndex, {Min,Max}} ->
+            % TODO: Why are we doing this a second time?
             version_manager:map_constraint(DepPkgName, Constraint, Problem),
-            depselector:add_version_constraint(PkgIndex, VersionId, DepPkgIndex, Min, Max);
+            depselector:add_version_constraint(Pid, PkgIndex, VersionId, DepPkgIndex, Min, Max);
         no_matching_package ->
             throw( {unreachable_package, DepPkgName} )
     end.

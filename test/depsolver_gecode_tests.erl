@@ -23,36 +23,34 @@
 -module(depsolver_gecode_tests).
 
 -include_lib("eunit/include/eunit.hrl").
--compile([export_all]).
+
+-compile(export_all).
+
 %%===========================================================================
 %% Tests
 %%============================================================================
 all_test_() ->
-    {foreach,
-     fun() ->
-             error_logger:delete_report_handler(error_logger_tty_h),
-             application:start(depsolver)
-     end,
-     fun(_) -> application:stop(depsolver) end,
-     [
-      {?MODULE, first},
-      {?MODULE, second},
-      {?MODULE, third},
-      {?MODULE, fail},
-      {?MODULE, conflicting_passing},
-      {?MODULE, circular_dependencies},
-      {?MODULE, conflicting_failing},
-      {?MODULE, pessimistic_major_minor_patch},
-      {?MODULE, pessimistic_major_minor},
-      {?MODULE, binary},
-      {?MODULE, doesnt_exist},
-      {?MODULE, not_new_enough},
-      {?MODULE, impossible_dependency},
-      {?MODULE, missing_via_culprit_search}
-      %% {generator, ?MODULE, format},
-      %% {generator, ?MODULE, missing2}
-     ]
-    }.
+    common:startup(),
+    % Using a pool size of 1 also ensures that we verify
+    % depsolver_gecode is returning procs to the pool properly.
+    common:add_depselector_pool(1),
+        [
+          {?MODULE, first},
+          {?MODULE, second},
+          {?MODULE, third},
+          {?MODULE, fail},
+          {?MODULE, conflicting_passing},
+          {?MODULE, circular_dependencies},
+          {?MODULE, conflicting_failing},
+          {?MODULE, pessimistic_major_minor_patch},
+          {?MODULE, pessimistic_major_minor},
+          {?MODULE, binary},
+          {?MODULE, doesnt_exist},
+          {?MODULE, not_new_enough},
+          {?MODULE, impossible_dependency},
+          {?MODULE, missing_via_culprit_search}
+
+        ].
 
 first() ->
     Dom0 = depsolver_gecode:add_packages(depsolver_gecode:new_graph(),

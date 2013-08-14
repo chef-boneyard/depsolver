@@ -24,20 +24,21 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -behaviour(gen_fsm).
-%% State  flow
+
 %% API
--export([start_link/1,
-         acquire/0,
-         is_ready/0,
-         new_problem/2,
-         new_problem_with_debug/2,
-         add_package/3,
-         add_version_constraint/5,
-         mark_package_required/1,
-         mark_package_suspicious/1,
-         mark_package_latest/2,
-         solve/0,
-         abort/0]).
+-export([start_link/0,
+         solver_file_path/0,
+         acquire/1,
+         is_ready/1,
+         new_problem/3,
+         new_problem_with_debug/3,
+         add_package/4,
+         add_version_constraint/6,
+         mark_package_required/2,
+         mark_package_suspicious/2,
+         mark_package_latest/3,
+         solve/1,
+         abort/1]).
 %% FSM
 -export([init/1,
          handle_info/3,
@@ -47,20 +48,19 @@
          code_change/4]).
 
 %% States
--export([pending_pid/2,
-         ready/2,
+-export([ready/2,
+         resetting/2,
          collecting/2,
          collecting/3,
          solving/2
         ]).
 
 %% Testing interface
--export([force_hang/0,
-         force_crash/0,
-         force_exit/0,
-         force_leak_kill/0]).
+-export([force_hang/1,
+         force_crash/1,
+         force_exit/1,
+         force_sleep/2]).
 
--define(SERVER, ?MODULE).
 -define(TIMEOUT,5000).
 -define(PORT_TIMEOUT, 4000).
 % This sequence is intended to first clear any in-flight commands
@@ -80,95 +80,92 @@
                  packages :: [{integer(), integer(), integer()}] }).
 
 
-start_link(Executable) ->
-    gen_fsm:start_link({local, ?SERVER}, depselector, Executable, []).
+start_link() ->
+    gen_fsm:start_link(?MODULE, [solver_file_path()], []).
 
-% The call must ensure that this instance is available for use
-% prior to invoking any other calls.  This will ensure that startup has completed.
-acquire() ->
-    gen_fsm:sync_send_all_state_event(?SERVER, notify_ready).
+acquire(Pid) ->
+    gen_fsm:sync_send_all_state_event(Pid, notify_ready).
 
-is_ready() ->
-    case gen_fsm:sync_send_all_state_event(?SERVER, curstate) of
+is_ready(Pid) ->
+    case gen_fsm:sync_send_all_state_event(Pid, curstate) of
         ready -> true;
         _ -> false
     end.
 
 %% TODO for compatibity with pooler, these will need to be modified to use a provided pid
-new_problem_with_debug(ID, NumPackages) ->
-    do_new_problem(ID, NumPackages, 1, 1).
+new_problem_with_debug(Pid, ID, NumPackages) ->
+    do_new_problem(Pid, ID, NumPackages, 1, 1).
 
-new_problem(ID, NumPackages) ->
-    do_new_problem(ID, NumPackages, 1, 1).
+new_problem(Pid, ID, NumPackages) ->
+    do_new_problem(Pid, ID, NumPackages, 1, 1).
 
-do_new_problem(ID, NumPackages, Stats, Debug) ->
+do_new_problem(Pid, ID, NumPackages, Stats, Debug) ->
     % let's ensure we're in a valid state.
     % First abort any in-process work - note that
     % if we can't do this (such as for a runaway solve that somehow evaded timeout)
     % we're going to crash the fsm at this point.
-    abort(),
+    abort(Pid),
     % Now wait for ready state before continuing.
-    acquire(),
+    acquire(Pid),
     % Last, start the problem.
-    gen_fsm:send_event(?SERVER, {new_problem, [ID, NumPackages, Stats, Debug]}).
+    gen_fsm:send_event(Pid, {new_problem, [ID, NumPackages, Stats, Debug]}).
 
-add_package(MinVer, MaxVer, CurVer) ->
-    gen_fsm:send_event(?SERVER, {update, add_package, [MinVer, MaxVer, CurVer]}).
+add_package(Pid, MinVer, MaxVer, CurVer) ->
+    gen_fsm:send_event(Pid, {update, add_package, [MinVer, MaxVer, CurVer]}).
 
-add_version_constraint(PackageId, Version, DepPackageId, MinVer, MaxVer) ->
-    gen_fsm:send_event(?SERVER, {update, add_constraint, [PackageId, Version, DepPackageId, MinVer, MaxVer]}).
+add_version_constraint(Pid, PackageId, Version, DepPackageId, MinVer, MaxVer) ->
+    gen_fsm:send_event(Pid, {update, add_constraint, [PackageId, Version, DepPackageId, MinVer, MaxVer]}).
 
-mark_package_required(PackageId) ->
-    gen_fsm:send_event(?SERVER, {update, mark_required, [PackageId]}).
+mark_package_required(Pid, PackageId) ->
+    gen_fsm:send_event(Pid, {update, mark_required, [PackageId]}).
 
-mark_package_suspicious(PackageId) ->
-    gen_fsm:send_event(?SERVER, {update, mark_suspicious, [PackageId]}).
+mark_package_suspicious(Pid, PackageId) ->
+    gen_fsm:send_event(Pid, {update, mark_suspicious, [PackageId]}).
 
-mark_package_latest(PackageId, Weight) ->
-    gen_fsm:send_event(?SERVER, {update, mark_latest, [PackageId, Weight]}).
+mark_package_latest(Pid, PackageId, Weight) ->
+    gen_fsm:send_event(Pid, {update, mark_latest, [PackageId, Weight]}).
 
-abort() ->
-    % TODO make this sync we we can provide a meaningful reply?
-    gen_fsm:send_all_state_event(?SERVER, abort).
+abort(Pid) ->
+    gen_fsm:sync_send_all_state_event(Pid, abort).
 
-solve() ->
-    gen_fsm:sync_send_event(?SERVER, solve).
+solve(Pid) ->
+    gen_fsm:sync_send_event(Pid, solve, infinity).
 
 %% Testing interface to induce various error conditions in the external process
-force_hang() ->
-    gen_fsm:send_event(?SERVER, {test_action, hang}).
+force_hang(Pid) ->
+    gen_fsm:send_event(Pid, {test_action, hang}).
 
-force_crash() ->
-    gen_fsm:send_event(?SERVER, {test_action, segfault}).
+force_crash(Pid) ->
+    gen_fsm:send_event(Pid, {test_action, segfault}).
 
-force_exit() ->
-    gen_fsm:send_event(?SERVER, {test_action, exit}).
+force_exit(Pid) ->
+    gen_fsm:send_event(Pid, {test_action, exit}).
 
-force_leak_kill() ->
-    gen_fsm:send_event(?SERVER, {test_action, leak}).
+force_sleep(Pid, Duration) ->
+    gen_fsm:send_event(Pid, {test_action, sleep, [Duration]}).
 
-% States
 init(Executable) ->
     process_flag(trap_exit, true),
-    case open_port({spawn_executable, Executable}, [exit_status, use_stdio, stream, {line, 1024}]) of
-        {error, Reason} ->
-            {error, Reason};
-        Port ->
-            {ok, pending_pid, #state{port = Port, inbuf = []}}
+    try
+        Port = open_port({spawn_executable, Executable},
+                         [exit_status, use_stdio, stream, {line, 1024}]),
+        % capture pid and persist it.  if we wait until we need it
+        % when trying to kill the process, it may not be available to us.
+        {os_pid, PID} = erlang:port_info(Port, os_pid),
+        {ok, ready, #state{port = Port, os_pid = PID, inbuf = []}}
+    catch
+        _:Reason ->
+            {error, Reason}
     end.
 
-% A couple of 'shadow' states - they are used internally, but
-% in usage the client may not use methods
-% that permit events to be received while in these states.
-pending_pid(timeout, State) ->
-    % Never received the reply we expected - let's shut things down
-    {stop, {error, no_pid_received}, State}.
-
+% States
 ready({new_problem, Args}, State) ->
     NewState = State#state{problem = action_to_string(new_problem, Args), problem_params = []},
     {next_state, collecting, NewState};
 ready(timeout, #state{reply_to = undefined} = State) ->
     {next_state, ready, State};
+ready({test_action, Action}, State) ->
+    do_test_action(Action, solving, State);
 ready(timeout, #state{reply_to = ReplyTo} = State) ->
     gen_fsm:reply(ReplyTo, true),
     {next_state, ready, State#state{reply_to = undefined}}.
@@ -177,20 +174,30 @@ collecting({update, Action, Args}, #state{problem_params = Params} = State) ->
     NewState = State#state{problem_params = [ action_to_string(Action, Args) | Params]},
     {next_state, collecting, NewState};
 collecting({test_action, Action}, State) ->
-    do_test_action(Action, collecting, State).
+    do_test_action(Action, solving, State).
+
 
 collecting(solve, From, #state{port = Port} = State) ->
     port_command(Port, ?RESET_SEQUENCE),
     % note that the next_state response means our caller is waiting for us to
     % eventually reply via gen_fsm:reply/2 (or timeout, whichever occurs first)
-    {next_state, resetting, State#state{reply_to = From}}.
+    {next_state, resetting, State#state{reply_to = From}, ?PORT_TIMEOUT}.
+
+resetting(timeout, #state{reply_to = ReplyTo} = State) ->
+    % We told solver to reset ahead of submitting our problem and it didn't
+    % get back to us.  Shut down.
+    Response = {error, {timeout, reset}},
+    gen_fsm:reply(ReplyTo, Response),
+    {stop, Response, State}.
 
 solving({test_action, Action}, State) ->
     do_test_action(Action, solving, State);
-solving(timeout, State) ->
+solving(timeout, #state{reply_to = ReplyTo} = State) ->
     % This means we never received a solution. Let's shut down,
     % which will notify caller of failure and terminate the solver instance.
-    {stop, {error, solution_timeout}, State}.
+    Response = {error, {timeout, resolution}},
+    gen_fsm:reply(ReplyTo, {error, Response}),
+    {stop, Response, State}.
 
 handle_info({_Port, {data, {eol, Data}}}, StateName, #state{inbuf = Acc} = State) ->
     Line = lists:flatten(lists:reverse([Data | Acc])),
@@ -205,20 +212,15 @@ handle_info(Msg, StateName, State) ->
     ?debugFmt("[~p] discarding data: ~p", [StateName, Msg]),
     {next_state, StateName, State}.
 
-handle_event(abort, pending_pid, StateData) ->
-    % abort has no effect while we're  intializing.
-    {next_state, pending_pid, StateData};
-handle_event(abort, ready, StateData) ->
-    {next_state, ready, clean_state(StateData)};
-handle_event(abort, collecting, StateData) ->
-    {next_state, ready, clean_state(StateData)};
-handle_event(abort, StateName, StateData) ->
-    % In any other case, we can't process an abort - we're in flight with communications
-    % to the solver.
-    {next_state, StateName, StateData};
 handle_event(_Event, StateName, StateData) ->
     {next_state, StateName, StateData}.
 
+handle_sync_event(abort, _From, ready, StateData) ->
+    {reply, ok, ready, clean_state(StateData)};
+handle_sync_event(abort, _From, collecting, StateData) ->
+    {reply, ok, ready, clean_state(StateData)};
+handle_sync_event(abort, _From, StateName, StateData) ->
+    {reply, {error, busy}, StateName, StateData};
 handle_sync_event(curstate, _From, StateName, StateData) ->
     {reply, StateName, StateName, StateData};
 handle_sync_event(notify_ready, _From, ready, StateData) ->
@@ -234,12 +236,14 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 terminate({port_terminated, _Reason}, _StateName, _State) ->
     ok;
 terminate(_Reason, _StateName, #state{port = Port, os_pid = PID}) ->
-    close_port(erlang:port_info(Port), Port),
+    try
+        close_port(erlang:port_info(Port), Port)
+    catch
+        _Mod:_Error ->
+            ok
+    end,
     kill_port_os_proc(PID).
 
-handle_inbound_data(pending_pid, Data, State) ->
-    % Time this out so we'll reply to any waiting client
-    {next_state, ready, State#state{os_pid = Data}, 0};
 % We are resetting pre-solve and have received confirmation that reset is complete.
 handle_inbound_data(resetting, "RESET", #state{port = Port, problem_params = Params, problem = Problem} = State) ->
     send_command(Port, Problem),
@@ -252,18 +256,18 @@ handle_inbound_data(ready, "RESET", #state{port = _Port} = State) ->
     % We can receive this if an error occurs in one of the batchced commands we send to solver -
     % we send all commands prior to checking to see if any errors occur.  When that happens,
     % solver sees all commands post-error as unknown input, which causes it to reset state.
-    {next_state, ready, State};
+    {next_state, ready, State, 0};
 handle_inbound_data(solving, "ERROR", #state{port = _Port} = State) ->
     % Wait for the error
     {next_state, solving_error_wait, State};
 handle_inbound_data(solving_error_wait, Error, #state{reply_to = ReplyTo} = State) ->
-    gen_fsm:reply(ReplyTo, {error, Error}),
-    {next_state, ready, clean_state(State)};
+    gen_fsm:reply(ReplyTo, {error, {solve_fail, Error}}),
+    {next_state, ready, clean_state(State), 0};
 handle_inbound_data(solving, "SOL", State) ->
     {next_state, solving_wait_header, State#state{packages = []}};
 handle_inbound_data(solving, "NOSOL", #state{reply_to = ReplyTo} = State) ->
     gen_fsm:reply(ReplyTo, {solution, none}),
-    {next_state, ready, clean_state(State)};
+    {next_state, ready, clean_state(State), 0};
 handle_inbound_data(solving_wait_header, Data, State) ->
     {ok, [DisabledCount], _Ignore} = io_lib:fread("~d", Data),
     {next_state, solving_wait_packages, State#state{disable_count = DisabledCount}};
@@ -278,7 +282,7 @@ handle_inbound_data(solving_wait_packages, "EOS", #state{reply_to = ReplyTo,
                  {disabled, DisabledCount},
                  {packages, lists:reverse(Packages)} },
     gen_fsm:reply(ReplyTo, {solution, Solution}),
-    {next_state, ready, clean_state(State)};
+    {next_state, ready, clean_state(State), 0};
 handle_inbound_data(solving_wait_packages, Data, #state{packages = Packages} = State) ->
     {ok, [Disabled, Version], _Ignore} = io_lib:fread("~d~d", Data),
     Package = {length(Packages), Disabled, Version},
@@ -296,6 +300,9 @@ handle_inbound_data(StateName, Data, #state{} = State) ->
 clean_state(#state{port = Port, os_pid = PID}) ->
     #state{port = Port, os_pid = PID, inbuf = []}.
 
+do_test_action({Action, Args}, StateName, #state{port = Port} = State) ->
+    send_command(Port, action_to_string(Action, Args)),
+    {next_state, StateName, State};
 do_test_action(Action, StateName, #state{port = Port} = State) ->
     send_command(Port, action_to_command(Action)),
     {next_state, StateName, State}.
@@ -307,7 +314,7 @@ close_port(_ ,Port) ->
 
 kill_port_os_proc(undefined) -> ok;
 kill_port_os_proc(PID) ->
-    os:cmd(lists:flatten(["kill", " ", PID])).
+    os:cmd(["kill -9 ", integer_to_list(PID)]).
 
 send_command(Port, Command) ->
     port_command(Port, Command),
@@ -326,7 +333,22 @@ action_to_command(mark_latest) -> "L";
 action_to_command(hang) -> "HANG";
 action_to_command(segfault) -> "SEGFAULT";
 action_to_command(exit) -> "EXIT";
-action_to_command(leak) -> "LEAK".
+action_to_command(leak) -> "LEAK";
+action_to_command(sleep) -> "SLEEP".
+
+
+solver_file_path() ->
+    filename:join([priv_dir(), "solver"]).
+
+priv_dir() ->
+    priv_dir(code:priv_dir(depsolver)).
+
+priv_dir({error, bad_name}) ->
+    ModDir = filename:dirname(code:which(depsolver)),
+    BaseDir = filename:dirname(ModDir),
+    filename:join(BaseDir, "priv");
+priv_dir(Other) ->
+    Other.
 
 safe_int_to_list(X) when is_integer(X) ->
     integer_to_list(X);

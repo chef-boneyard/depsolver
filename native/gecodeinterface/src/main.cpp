@@ -45,10 +45,6 @@ int main(int argc, char * argv[])
   // NOTE: this limit does NOT appear effective under OS X
   setrlimit(RLIMIT_AS, &limits);
 
-  // Tell our caller our pid, allowing it to kill us if we get out of
-  // hand.
-  cout << getpid() << endl;
-
   // A simple command loop
   // NEW means the next problem is incoming, which has its own expected syntax.
   // EXIT means that we should terminate.
