@@ -58,7 +58,9 @@
 %-type dependency_set() :: {pkg_name(), [vsn_constraint()]}.
 
 -record(cookbook_version_mapper,
-        { versionList :: array } ).
+        { versionList :: array,
+          isMissing = false :: boolean()
+        } ).
 
 -record(package,
         { name :: string(),
@@ -124,12 +126,16 @@ unmap_constraint({PackageId, VersionId}, #problem{byId=ById}) ->
             {PackageName, Version}
     end.
 
+%%
+%%
 %% Version mapping/unmapping to a dense set
 -spec make([vsn()]) -> #cookbook_version_mapper{}.
+make([{missing}]) ->
+    #cookbook_version_mapper{versionList = array:new(), isMissing = true};
 make(Versions) ->
     SortedVersions = lists:sort(fun ec_semver:lt/2, lists:map(fun parse/1, Versions)),
     ArrayVersions = array:from_list(SortedVersions),
-    #cookbook_version_mapper{versionList = ArrayVersions}.
+    #cookbook_version_mapper{versionList = ArrayVersions, isMissing = false}.
 
 version_to_int(Version, #cookbook_version_mapper{versionList = VersionList}) ->
     search_eq(Version, VersionList).
