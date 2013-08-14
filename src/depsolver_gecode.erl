@@ -297,7 +297,6 @@ release_pool_worker({error, {timeout, _Where}}, Pid) ->
 release_pool_worker(_Solution, Pid) ->
     pooler:return_member(depselector, Pid, ok).
 
--spec setup(dep_graph(),[constraint()]) -> {ok, [any()]} | {error, term()}. %% TODO Fix type
 setup(DepGraph0, RawGoals) when erlang:length(RawGoals) > 0 ->
     case pooler:take_member(depselector) of
         error_no_members ->
@@ -308,18 +307,22 @@ setup(DepGraph0, RawGoals) when erlang:length(RawGoals) > 0 ->
 
 setup(Pid, DepGraph0, RawGoals) ->
     try
-        %% Use this to get more debug output...
-        %% depselector:new_problem_with_debug("TEST", gb_trees:size(DepGraph0) + 1),
-        depselector:new_problem(Pid, "TEST", gb_trees:size(DepGraph0) + 1),
-        Problem = generate_versions(Pid, DepGraph0),
-        generate_constraints(Pid, DepGraph0, RawGoals, Problem),
-        {ok, Pid, Problem}
+        case trim_unreachable_packages(DepGraph0, RawGoals) of
+            Error = {error, _} ->
+                Error;
+            DepGraph1 ->
+                %% Use this to get more debug output...
+                %% depselector:new_problem_with_debug(Pid, "TEST", gb_trees:size(DepGraph0) + 1),
+                depselector:new_problem(Pid, "TEST", gb_trees:size(DepGraph0) + 1),
+                Problem = generate_versions(Pid, DepGraph0),
+                generate_constraints(Pid, DepGraph0, RawGoals, Problem),
+                {ok, Pid, Problem}
+        end
     catch
         throw:{unreachable_package, Name} ->
             pooler:return_member(depselector, Pid, ok),
             {error, {unreachable_package, Name}}
     end.
-
 
 %% Instantiate versions
 generate_versions(Pid, DepGraph0) ->
@@ -476,3 +479,86 @@ to_iolist(L) when is_list(L) ->
 join_as_iolist(L) ->
     [_ | T] = lists:flatten([ [", ", to_iolist(E)] || E <-L ]),
     T.
+
+
+%% @doc
+%% given a Pkg | {Pkg, Vsn} | {Pkg, Vsn, Constraint} return Pkg
+-spec dep_pkg(constraint()) -> pkg_name().
+dep_pkg({Pkg, _Vsn}) ->
+    Pkg;
+dep_pkg({Pkg, _Vsn, _}) ->
+    Pkg;
+dep_pkg({Pkg, _Vsn1, _Vsn2, _}) ->
+    Pkg;
+dep_pkg(Pkg) when is_atom(Pkg) orelse is_binary(Pkg) ->
+    Pkg.
+
+
+%% @doc given a graph and a set of top level goals return a graph that contains
+%% only those top level packages and those packages that might be required by
+%% those packages.
+
+%% We compute the recursive expansion of all cookbooks referenced by any version of a cookbook on
+%% the run list, and remove any cookbooks that aren't ever used.
+%%
+%% We also add dummy cookbooks for missing ones. These cookbooks have no valid versions. This lets
+%% us add constraints referencing such cookbooks; they simply cannot be satisfied due to the missing
+%% cookbook.
+%%
+%% An alternate strategy would be to prune versions referencing missing cookbooks, reducing the
+%% problem size further, but the current approach allows more useful error messages.
+-spec trim_unreachable_packages(dep_graph(), [constraint()]) ->
+                                       dep_graph() | {error, term()}.
+trim_unreachable_packages(State, Goals) ->
+    {_, NewState0} = new_graph(),
+    lists:foldl(fun(_Pkg, Error={error, _}) ->
+                        Error;
+                   (Pkg, NewState1) ->
+                        PkgName = dep_pkg(Pkg),
+                        find_reachable_packages(State, NewState1, PkgName)
+                end, NewState0, Goals).
+
+%% @doc given a list of versions and the constraints for that version rewrite
+%% the new graph to reflect the requirements of those versions.
+-spec rewrite_vsns(dep_graph(), dep_graph(), [{vsn(), [constraint()]}]) ->
+                          dep_graph() | {error, term()}.
+rewrite_vsns(ExistingGraph, NewGraph0, Info) ->
+    lists:foldl(fun(_, Error={error, _}) ->
+                        Error;
+                   ({_Vsn, Constraints}, NewGraph1) ->
+                        lists:foldl(fun(_DepPkg, Error={error, _}) ->
+                                            Error;
+                                       (DepPkg, NewGraph2) ->
+                                            DepPkgName = dep_pkg(DepPkg),
+                                            find_reachable_packages(ExistingGraph,
+                                                                    NewGraph2,
+                                                                    DepPkgName)
+                                    end, NewGraph1, Constraints)
+                end, NewGraph0, Info).
+
+%% @doc Rewrite the existing dep graph removing anything that is not reachable
+%% required by the goals or any of its potential dependencies.
+-spec find_reachable_packages(dep_graph(), dep_graph(), pkg_name()) ->
+                                     dep_graph() | {error, term()}.
+find_reachable_packages(_ExistingGraph, Error={error, _}, _PkgName) ->
+    Error;
+find_reachable_packages(ExistingGraph, NewGraph0, PkgName) ->
+    case contains_package_version(NewGraph0, PkgName) of
+        true ->
+            NewGraph0;
+        false ->
+            case gb_trees:lookup(PkgName, ExistingGraph) of
+                {value, Info} ->
+                    NewGraph1 = gb_trees:insert(PkgName, Info, NewGraph0),
+                    rewrite_vsns(ExistingGraph, NewGraph1, Info);
+                none ->
+                    NewGraph1 = gb_trees:insert(PkgName, [{{missing}, []}], NewGraph0),
+                    rewrite_vsns(ExistingGraph, NewGraph1, [{{missing}, []}])
+            end
+    end.
+
+%% @doc
+%%  Checks to see if a package name has been defined in the dependency graph
+-spec contains_package_version(dep_graph(), pkg_name()) -> boolean().
+contains_package_version(Dom0, PkgName) ->
+    gb_trees:is_defined(PkgName, Dom0).
