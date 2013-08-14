@@ -47,8 +47,7 @@
          code_change/4]).
 
 %% States
--export([pending_pid/2,
-         ready/2,
+-export([ready/2,
          collecting/2,
          collecting/3,
          solving/2
@@ -84,7 +83,8 @@ start_link(Executable) ->
     gen_fsm:start_link({local, ?SERVER}, depselector, Executable, []).
 
 % The call must ensure that this instance is available for use
-% prior to invoking any other calls.  This will ensure that startup has completed.
+% prior to invoking any other calls.  This will ensure that startup has completed, and/or
+% any solve in progress is completed.
 acquire() ->
     gen_fsm:sync_send_all_state_event(?SERVER, notify_ready).
 
@@ -154,15 +154,11 @@ init(Executable) ->
         {error, Reason} ->
             {error, Reason};
         Port ->
-            {ok, pending_pid, #state{port = Port, inbuf = []}}
+            % capture pid and persist it.  if we wait until we need it
+            % when trying to kill the process, it may not be available to us.
+            {os_pid, PID} = erlang:port_info(Port, os_pid),
+            {ok, ready, #state{port = Port, os_pid = PID, inbuf = []}}
     end.
-
-% A couple of 'shadow' states - they are used internally, but
-% in usage the client may not use methods
-% that permit events to be received while in these states.
-pending_pid(timeout, State) ->
-    % Never received the reply we expected - let's shut things down
-    {stop, {error, no_pid_received}, State}.
 
 ready({new_problem, Args}, State) ->
     NewState = State#state{problem = action_to_string(new_problem, Args), problem_params = []},
@@ -205,9 +201,6 @@ handle_info(Msg, StateName, State) ->
     ?debugFmt("[~p] discarding data: ~p", [StateName, Msg]),
     {next_state, StateName, State}.
 
-handle_event(abort, pending_pid, StateData) ->
-    % abort has no effect while we're  intializing.
-    {next_state, pending_pid, StateData};
 handle_event(abort, ready, StateData) ->
     {next_state, ready, clean_state(StateData)};
 handle_event(abort, collecting, StateData) ->
@@ -234,12 +227,14 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 terminate({port_terminated, _Reason}, _StateName, _State) ->
     ok;
 terminate(_Reason, _StateName, #state{port = Port, os_pid = PID}) ->
-    close_port(erlang:port_info(Port), Port),
+    try
+        close_port(erlang:port_info(Port), Port)
+    catch
+        _Mod:_Error ->
+            ok
+    end,
     kill_port_os_proc(PID).
 
-handle_inbound_data(pending_pid, Data, State) ->
-    % Time this out so we'll reply to any waiting client
-    {next_state, ready, State#state{os_pid = Data}, 0};
 % We are resetting pre-solve and have received confirmation that reset is complete.
 handle_inbound_data(resetting, "RESET", #state{port = Port, problem_params = Params, problem = Problem} = State) ->
     send_command(Port, Problem),
@@ -252,18 +247,18 @@ handle_inbound_data(ready, "RESET", #state{port = _Port} = State) ->
     % We can receive this if an error occurs in one of the batchced commands we send to solver -
     % we send all commands prior to checking to see if any errors occur.  When that happens,
     % solver sees all commands post-error as unknown input, which causes it to reset state.
-    {next_state, ready, State};
+    {next_state, ready, State, 0};
 handle_inbound_data(solving, "ERROR", #state{port = _Port} = State) ->
     % Wait for the error
     {next_state, solving_error_wait, State};
 handle_inbound_data(solving_error_wait, Error, #state{reply_to = ReplyTo} = State) ->
     gen_fsm:reply(ReplyTo, {error, Error}),
-    {next_state, ready, clean_state(State)};
+    {next_state, ready, clean_state(State), 0};
 handle_inbound_data(solving, "SOL", State) ->
     {next_state, solving_wait_header, State#state{packages = []}};
 handle_inbound_data(solving, "NOSOL", #state{reply_to = ReplyTo} = State) ->
     gen_fsm:reply(ReplyTo, {solution, none}),
-    {next_state, ready, clean_state(State)};
+    {next_state, ready, clean_state(State), 0};
 handle_inbound_data(solving_wait_header, Data, State) ->
     {ok, [DisabledCount], _Ignore} = io_lib:fread("~d", Data),
     {next_state, solving_wait_packages, State#state{disable_count = DisabledCount}};
@@ -278,7 +273,7 @@ handle_inbound_data(solving_wait_packages, "EOS", #state{reply_to = ReplyTo,
                  {disabled, DisabledCount},
                  {packages, lists:reverse(Packages)} },
     gen_fsm:reply(ReplyTo, {solution, Solution}),
-    {next_state, ready, clean_state(State)};
+    {next_state, ready, clean_state(State), 0};
 handle_inbound_data(solving_wait_packages, Data, #state{packages = Packages} = State) ->
     {ok, [Disabled, Version], _Ignore} = io_lib:fread("~d~d", Data),
     Package = {length(Packages), Disabled, Version},
@@ -307,7 +302,7 @@ close_port(_ ,Port) ->
 
 kill_port_os_proc(undefined) -> ok;
 kill_port_os_proc(PID) ->
-    os:cmd(lists:flatten(["kill", " ", PID])).
+    os:cmd(lists:flatten(["kill -9 ", integer_to_list(PID)])).
 
 send_command(Port, Command) ->
     port_command(Port, Command),
