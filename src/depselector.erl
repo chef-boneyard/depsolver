@@ -92,7 +92,6 @@ is_ready(Pid) ->
         _ -> false
     end.
 
-%% TODO for compatibity with pooler, these will need to be modified to use a provided pid
 new_problem_with_debug(Pid, ID, NumPackages) ->
     do_new_problem(Pid, ID, NumPackages, 1, 1).
 
