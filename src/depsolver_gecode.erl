@@ -313,9 +313,9 @@ setup(Pid, DepGraph0, RawGoals) ->
             DepGraph1 ->
                 %% Use this to get more debug output...
                 %% depselector:new_problem_with_debug(Pid, "TEST", gb_trees:size(DepGraph0) + 1),
-                depselector:new_problem(Pid, "TEST", gb_trees:size(DepGraph0) + 1),
-                Problem = generate_versions(Pid, DepGraph0),
-                generate_constraints(Pid, DepGraph0, RawGoals, Problem),
+                depselector:new_problem(Pid, "TEST", gb_trees:size(DepGraph1) + 1),
+                Problem = generate_versions(Pid, DepGraph1),
+                generate_constraints(Pid, DepGraph1, RawGoals, Problem),
                 {ok, Pid, Problem}
         end
     catch
