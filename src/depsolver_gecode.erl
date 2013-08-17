@@ -373,8 +373,6 @@ add_constraint_element(Pid, DepPkgName, PkgIndex, VersionId, Problem) when not i
 add_constraint_element_helper(Pid, DepPkgName, Constraint, PkgIndex, VersionId, Problem) ->
     case version_manager:map_constraint(DepPkgName, Constraint, Problem) of
         {DepPkgIndex, {Min,Max}} ->
-            % TODO: Why are we doing this a second time?
-            version_manager:map_constraint(DepPkgName, Constraint, Problem),
             depselector:add_version_constraint(Pid, PkgIndex, VersionId, DepPkgIndex, Min, Max);
         no_matching_package ->
             throw( {unreachable_package, DepPkgName} )
