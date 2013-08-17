@@ -49,7 +49,11 @@ all_test_() ->
          {?MODULE, not_new_enough},
          {?MODULE, impossible_dependency},
          {?MODULE, missing_via_culprit_search},
-         {?MODULE, complex_dependency}
+         {?MODULE, complex_dependency},
+         {?MODULE, unused_not_selected}
+         %% {generator, ?MODULE, format},
+         %% {generator, ?MODULE, missing2}
+         
         ].
 
 first() ->
@@ -460,9 +464,30 @@ complex_dependency() ->
             ],
     Dom0 = depsolver_gecode:add_packages(depsolver_gecode:new_graph(), World),
     Ret = depsolver_gecode:solve(Dom0, [<<"foo">>]),
-    ?debugFmt("~p~n", [Ret]),
     _ = depsolver_gecode:format_error(Ret),
     ?assertMatch({error,{no_solution,[<<"foo">>],[{<<"buzz">>,{2,0,0}}]}}, Ret).
+
+unused_not_selected() ->
+    World = [{<<"foo">>, [{<<"0.0.0">>, [{ <<"ack">>, <<"1.0.0">>},
+                                         { <<"bar">>, <<"1.0.0">>},
+                                         { <<"buzz">>, <<"1.0.0">>} ]},
+                          {<<"1.2.3">>, [{ <<"bar">>, <<"1.0.0">>},
+                                         { <<"buzz">>, <<"1.0.0">>} ]}]},
+             {<<"bar">>, [{<<"1.0.0">>, [{ <<"baz">>, <<"1.0.0">>, gt}]}]},
+             {<<"buzz">>, [{<<"1.0.0">>, [{<<"baz">>, <<"1.2.0">>, gt}]},
+                           {<<"2.0.0">>, [{<<"baz">>, <<"1.0.0">>}]}]},
+             {<<"ack">>, [{<<"1.0.0">>, [{<<"foobar">>, <<"1.0.0">>}]}]},
+             {<<"baz">>, [{<<"1.0.0">>, []},
+                          {<<"2.0.0">>, []}]}
+            ],
+    Dom0 = depsolver_gecode:add_packages(depsolver_gecode:new_graph(), World),
+    Ret = depsolver_gecode:solve(Dom0, [<<"foo">>]),
+    Exp = {ok,[{<<"bar">>,{1,0,0}},
+               {<<"baz">>,{2,0,0}},
+               {<<"buzz">>,{1,0,0}},
+               {<<"foo">>,{1,2,3}}]},
+    _ = depsolver_gecode:format_error(Ret),
+    ?assertEqual(Exp, Ret).
 
 
 %%

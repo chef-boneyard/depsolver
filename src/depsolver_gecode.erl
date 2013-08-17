@@ -325,6 +325,23 @@ setup(Pid, DepGraph0, RawGoals) ->
     end.
 
 %% Instantiate versions
+%%
+%% Note: gecode does naive bounds propagation at every post, which means that any package with
+%% exactly one version is considered bound and its dependencies propagated even though there might
+%% not be a solution constraint that requires that package to be bound, which means that
+%% otherwise-irrelevant constraints (e.g. A1->B1 when the solution constraint is B=2 and there is
+%% nothing to induce a dependency on A) can cause unsatisfiability. Therefore, we want every package
+%% to have at least two versions, one of which is neither the target of other packages' dependencies
+%% nor induces other dependencies. Package version id -1 serves this purpose.
+%%
+%% So for example, a package with only a single version available would be encoded with range -1, 0
+%% inclusive, and a package with 4 versions available would be encoded with range -1, 3.
+%%
+%% If the final solution results in a package version set to -1, we can assume it was never used.
+%%
+%% We may likewise want to leave packages with no versions (the target of an invalid dependency)
+%% with two versions in order to allow the solver to explore the invalid portion of the state space
+%% instead of naively limiting it for the purposes of having failure count heuristics?
 generate_versions(Pid, DepGraph0) ->
     Versions0 = version_manager:new(),
     %% the runlist is treated as a virtual package.
@@ -346,9 +363,11 @@ add_versions_for_package(Pid, {PkgName, VersionConstraints, Iterator}, Acc) ->
     %% chain, it creates a constraint limiting it to be 0 or greater, but until it is mentioned, it
     %% can be -1, and hence unused.
     MinVersion = -1,
-    MaxVersion = length(Versions) - 1,
-    depselector:add_package(Pid, MinVersion, MaxVersion, MaxVersion),
+    MaxVersion = version_manager:get_version_max_for_package(PkgName, NAcc),
+%%    ?debugFmt("~p: ~p~n", [PkgName, MaxVersion]),
+    depselector:add_package(Pid, MinVersion, MaxVersion, 0),
     add_versions_for_package(Pid, gb_trees:next(Iterator), NAcc).
+
 
 
 %% Constraints for each version
@@ -394,8 +413,11 @@ extract_disabled(PackageVersionIds, Problem) ->
 unmap_packed_solution(PackageVersionIds, Problem) ->
     %% The runlist is a synthetic package, and should be filtered out
     [{0,0,0} | PackageVersionIdsReal ] = PackageVersionIds,
+%%    ?debugFmt("~p~n", [PackageVersionIds]),
+    %% Note that the '0' filters out disabled packages.
+    %% Packages with versions < 0 are not used, and can be ignored.
     PackageList = [version_manager:unmap_constraint({PackageId, VersionId}, Problem) ||
-                      {PackageId, _DisabledState, VersionId} <- PackageVersionIdsReal],
+                      {PackageId, _Disabled=0, VersionId} <- PackageVersionIdsReal, VersionId >= 0],
     PackageList.
 
 %% Parse a string version into a tuple based version

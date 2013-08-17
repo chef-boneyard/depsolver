@@ -17,6 +17,7 @@
          add_package/3,
          get_id/2,
          get_version_id/3,
+         get_version_max_for_package/2,
          map_constraint/3,
          unmap_constraint/2,
          int_to_version/2,
@@ -99,6 +100,10 @@ get_version_id(PkgName, Version, #problem{byName=ByName}) ->
     VersionId = version_to_int(Version, Mapper),
     {Index, VersionId}.
 
+get_version_max_for_package(PkgName, #problem{byName=ByName}) ->
+    {value, #package{versionMapper = Mapper}} = gb_trees:lookup(PkgName, ByName),
+    mapper_get_version_max(Mapper).
+
 map_constraint(DependentPackage, Constraint, #problem{byName=ByName}) ->
     case gb_trees:lookup(DependentPackage, ByName) of
         none ->
@@ -150,6 +155,12 @@ int_to_version(Value, #cookbook_version_mapper{versionList = Versions}) ->
             {Version, _} = array:get(Value, Versions),
             Version
     end.
+
+mapper_get_version_max(#cookbook_version_mapper{isMissing = true}) ->
+    -1;
+mapper_get_version_max(#cookbook_version_mapper{versionList = ArrayVersions, isMissing = false}) ->
+    array:size(ArrayVersions) - 1.
+
 
 parse({V, {A, B}}) when is_tuple(V) andalso size(V) < 4 ->
     {V, {A,B}};
