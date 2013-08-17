@@ -1,5 +1,5 @@
 %%% -*- erlang-indent-level: 4; indent-tabs-mode: nil; fill-column: 100 -*-
-%%% ex: ts=4 sx=4 et
+%%% ex: ts=4 sw=4 et
 %%%-------------------------------------------------------------------
 %%% @author Mark Anderson <>
 %%% @copyright (C) 2013, Mark Anderson

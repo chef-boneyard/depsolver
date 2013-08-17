@@ -1,6 +1,7 @@
 %% -*- erlang-indent-level: 4; indent-tabs-mode: nil; fill-column: 80 -*-
 %% ex: ts=4 sw=4 et
 %%
+%%-------------------------------------------------------------------
 %% Copyright 2013 Opscode, Inc. All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
@@ -18,35 +19,26 @@
 %% under the License.
 %%
 %% @author Marc Paradise <marc@opscode.com>
-%%
+%% @doc this module contains some shared setup/teardown functions for
+%%      depsolver testing.
+%%--------------------------------------------------------------------
 
--module(depselector_sup).
--behavior(supervisor).
+-module(common).
 
-%% External exports
--export([start_link/0]).
+-include_lib("eunit/include/eunit.hrl").
 
-%% supervisor callbacks
--export([init/1]).
+-export([startup/0,
+         add_depselector_pool/1 ]).
 
-start_link() ->
-    supervisor:start_link(depselector_sup, []).
+startup() ->
+    error_logger:tty(false),
+    application:start(pooler).
 
-init([]) ->
-    PrivDir = priv_dir(),
-    ExePath = filename:join([PrivDir, "solver"]),
-    {ok, {{one_for_one, 3, 10},
-          [{depselector, {depselector, start_link, [ExePath]},
-            permanent, 10, worker, [depselector]}]}}.
+add_depselector_pool(Count) ->
+    PoolerProps = [{name, depselector},
+                   {init_count, Count},
+                   {max_count, Count},
+                   {start_mfa, {depselector, start_link, []}}],
+    pooler:new_pool(PoolerProps).
 
-priv_dir() ->
-    priv_dir(code:priv_dir(depsolver)).
 
-% TODO this is a hack that I strongly suspect won't work when depsolver
-% itself is a dep
-priv_dir({error, bad_name}) ->
-    ModDir = filename:dirname(code:which(depsolver)),
-    BaseDir = filename:dirname(ModDir),
-    filename:join(BaseDir, "priv");
-priv_dir(Other) ->
-    Other.

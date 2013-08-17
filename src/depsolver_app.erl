@@ -39,8 +39,7 @@ stop()->
   stop(state).
 
 start(_StartType, _StartArgs) ->
-    depsolver_sup:start_link(),
-    depselector_sup:start_link().
+    depsolver_sup:start_link().
 
 stop(_State) ->
     ok.
