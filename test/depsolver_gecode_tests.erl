@@ -375,7 +375,7 @@ missing_via_culprit_search() ->
     Ret1 = depsolver_gecode:solve(Dom0, [<<"app1">>,<<"app2">>]),
     _ = depsolver_gecode:format_error(Ret1),
     ?assertEqual({error,{no_solution,[<<"app1">>,<<"app2">>],
-                         [{<<"app1::oops">>,out_of_range}]}}, Ret1).
+                         [{<<"app1::oops">>,unused}]}}, Ret1).
 
 binary() ->
 
