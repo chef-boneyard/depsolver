@@ -142,13 +142,27 @@ format_version({{Maj, Min, Patch}, {AlphaPart, BuildPart}}) ->
      erlang:integer_to_list(Min), ".",
      erlang:integer_to_list(Patch),
      format_alpha_part(<<"-">>, AlphaPart),
-     format_alpha_part(<<"+">>, BuildPart)].
+     format_alpha_part(<<"+">>, BuildPart)];
+format_version({Maj})
+  when erlang:is_integer(Maj) ->
+    erlang:integer_to_list(Maj);
+format_version({Maj, Min})
+  when erlang:is_integer(Maj) andalso erlang:is_integer(Min) ->
+    [erlang:integer_to_list(Maj), ".",
+     erlang:integer_to_list(Min)];
+format_version({Maj, Min, Patch})
+  when erlang:is_integer(Maj) andalso erlang:is_integer(Min) andalso erlang:is_integer(Patch) ->
+    [erlang:integer_to_list(Maj), ".",
+     erlang:integer_to_list(Min), ".",
+     erlang:integer_to_list(Patch)].
 
 -spec format_constraint(depsolver:constraint()) -> list().
 format_constraint(Pkg) when is_atom(Pkg) ->
     erlang:atom_to_list(Pkg);
 format_constraint(Pkg) when is_binary(Pkg) ->
     erlang:binary_to_list(Pkg);
+format_constraint({Pkg, unused}) ->
+    ["(", format_constraint(Pkg), " at non-existent version )"];
 format_constraint({Pkg, Vsn}) when is_tuple(Vsn) ->
     ["(", format_constraint(Pkg), " = ",
      format_version(Vsn), ")"];

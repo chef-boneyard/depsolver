@@ -503,10 +503,9 @@ to_iolist(B) when is_binary(B) ->
 to_iolist(L) when is_list(L) ->
    L.
 
-join_as_iolist(L) ->
-    [_ | T] = lists:flatten([ [", ", to_iolist(E)] || E <-L ]),
-    T.
-
+join_as_iolist([H | T]) ->
+    L = [ [", ", to_iolist(E)] || E <- T ],
+    lists:flatten([to_iolist(H), L]).
 
 %% @doc
 %% given a Pkg | {Pkg, Vsn} | {Pkg, Vsn, Constraint} return Pkg
