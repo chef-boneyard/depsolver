@@ -175,7 +175,7 @@ fail() ->
     %% We do this to make sure all errors can be formated.
     _ = depsolver_gecode:format_error(Ret),
 
-    Expected = {error,{no_solution,[{app1,"0.1"}],[{app1,{0,3}}]}},
+    Expected = {error,{no_solution,[{app1, {{0,1}, {[], []}}}],[{app1,{0,3}}]}},
     ?assertEqual(Expected, Ret).
 
 conflicting_passing() ->

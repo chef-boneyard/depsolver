@@ -237,7 +237,8 @@ solve({?MODULE, DepGraph0}, RawGoals, _Timeout) when erlang:length(RawGoals) > 0
 %% ``` depsolver:solve(State, [{app1, "0.1", '>='}]).'''
 -spec solve(t(),[constraint()]) -> {ok, [pkg()]} | {error, term()}.
 solve({?MODULE, DepGraph0}, RawGoals) when erlang:length(RawGoals) > 0 ->
-    case setup(DepGraph0, RawGoals) of
+    Goals = [fix_con(Goal) || Goal <- RawGoals],
+    case setup(DepGraph0, Goals) of
         {error, {unreachable_package, Name}} ->
             {error, {unreachable_package, Name}};
         {ok, Pid, Problem} ->
@@ -247,7 +248,7 @@ solve({?MODULE, DepGraph0}, RawGoals) when erlang:length(RawGoals) > 0 ->
                   {disabled, _Disabled_Count},
                   {packages, _PackageVersionIds}} = _Results} ->
                     %% Find smallest prefix of the runlist that still fails
-                    culprit_search(DepGraph0, RawGoals, 1);
+                    culprit_search(DepGraph0, Goals, 1);
                 {solution,
                  {{state, valid},
                   {disabled, _Disabled_Count},
@@ -271,13 +272,13 @@ solve({?MODULE, DepGraph0}, RawGoals) when erlang:length(RawGoals) > 0 ->
 %% that quadratic behavior isn't important.
 %%
 %% Technically the length guard shouldn't be needed, since we know the full runlist fails to solve
-culprit_search(DepGraph0, RawGoals, Length) when Length =< length(RawGoals) ->
-    NewGoals = lists:sublist(RawGoals, Length),
+culprit_search(DepGraph0, Goals, Length) when Length =< length(Goals) ->
+    NewGoals = lists:sublist(Goals, Length),
     {ok, Pid, Problem} = setup(DepGraph0, NewGoals),
     case solve_and_release(Pid) of
         {solution, {{state, valid}, {disabled, _Disabled_Count}, {packages, _PackageVersionIds}}} ->
             %% This solution still now works, so it probably doesn't include our troublemaker,
-            culprit_search(DepGraph0, RawGoals, Length+1);
+            culprit_search(DepGraph0, Goals, Length+1);
         {solution,
          {{state, invalid},
           {disabled, _Disabled_Count},
@@ -470,20 +471,24 @@ format_error({error, {overconstrained, Runlist, Disabled}}) ->
        format_error_path("    ", {Runlist, Disabled})]);
 format_error({error, {unreachable_package, Name}}) ->
     erlang:iolist_to_binary( ["Unable to find package", Name, "\n\n"]);
-format_error(E) ->
+format_error({error, {no_solution, Runlist, MostConstrained}}) ->
+    format_error_path("", {Runlist, MostConstrained});
+format_error(E) ->  %% TODO REMOVE
     ?debugVal(E).
 
 
 -spec format_error_path(string(), {[{[depsolver:constraint()], [depsolver:pkg()]}],
                                    [depsolver:constraint()]}) -> iolist().
 format_error_path(CurrentIndent, {Roots, FailingDeps}) ->
+    ?debugFmt("~p ~p~n", [Roots, FailingDeps]),
     [CurrentIndent, "Unable to satisfy goal constraint",
      depsolver_culprit:add_s(Roots), " ", format_roots(Roots),
      " due to constraint", depsolver_culprit:add_s(FailingDeps), " on ",
      format_disabled(FailingDeps), "\n"].
 
 format_roots(L) ->
-    join_as_iolist([depsolver_culprit:format_constraint(fix_con(E)) || E <- L]).
+    ?debugVal(L),
+    join_as_iolist([depsolver_culprit:format_constraint(E) || E <- L]).
 
 
 %% We could certainly get fancier, but the version doesn't necessarily help much...
