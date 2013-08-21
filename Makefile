@@ -40,9 +40,10 @@ endif
 
 # solver flags
 CC=g++
+GECODE_PREFIX ?= /opt/gecode
 SOLVER_PATH=native/gecodeinterface/src
-SOLVER_CFLAGS=-c -I/opt/gecode/include
-SOLVER_LDFLAGS=-L/opt/gecode/lib -Wl,-rpath,/opt/gecode/lib -lstdc++ -lgecodesearch -lgecodeint -lgecodekernel -lgecodesupport -lgecodeminimodel
+SOLVER_CFLAGS=-c -I$(GECODE_PREFIX)/include
+SOLVER_LDFLAGS=-L$(GECODE_PREFIX)/lib -Wl,-rpath,$(GECODE_PREFIX)/lib -lstdc++ -lgecodesearch -lgecodeint -lgecodekernel -lgecodesupport -lgecodeminimodel
 SOLVER_SOURCES=$(wildcard $(SOLVER_PATH)/*.cpp)
 SOLVER_OBJECTS=$(SOLVER_SOURCES:.cpp=.o)
 SOLVER_BIN=priv/solver
