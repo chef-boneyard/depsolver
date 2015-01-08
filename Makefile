@@ -30,6 +30,8 @@ endif
 GLOBAL_PLT := $(wildcard $(HOME)/.dialyzer_plt)
 DEPSOLVER_PLT=
 
+SOLUTIONTESTDIR := $(CURDIR)/test/data/solution_logs
+
 ifeq ($(strip $(GLOBAL_PLT)),)
 DEPSOLVER_PLT=$(CURDIR)/.depsolver_plt
 else
@@ -53,7 +55,10 @@ doc:
 clean:
 	@$(REBAR) clean
 
-eunit: compile
+$(SOLUTIONTESTDIR):
+	mkdir -p $(SOLUTIONTESTDIR)
+
+eunit: compile | $(SOLUTIONTESTDIR)
 	@$(REBAR) skip_deps=true eunit
 
 # This rule should only be invoked for the a local plt

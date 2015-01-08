@@ -26,16 +26,19 @@
 -module(depsolver_tester).
 
 -compile([export_all]).
+
 -include_lib("eunit/include/eunit.hrl").
 
 -define(ADD_PKG, "^DepSelector\\sinst#\\s(\\d+)\\s-\\s"
         "Adding\\spackage\\sid\\s(\\d+)\\/(\\d+):\\smin\\s=\\s-1,"
         "\\smax\\s=\\s(\\d+),\\scurrent\\sversion\\s0$").
 -define(ADD_VC, "^DepSelector\\sinst#\\s(\\d+)\\s-\\sAdding\\sVC\\s"
-        "for\\s(\\d+)\\s@\\s(\\d+)\\sdepPkg\\s(\\d+)\\s\\[\\s(\\d+)"
+        "for\\s(\\d+)\\s@\\s(\\d+)\\sdepPkg\\s(\\d+)\\s\\[\\s(\\d+),"
         "\\s(\\d+)\\s\\]$").
 -define(ADD_GOAL, "^DepSelector\\sinst#\\s(\\d+)\\s-\\s"
         "Marking\\sPackage\\sRequired\\s(\\d+)$").
+-define(ADD_SOLUTION, "^#\\d+PackageId:\\s(\\d+)\\sSltn:\\s"
+        "(\\d+)\\sdisabled:\\s\\d+\\sat\\slatest:\\s\\d+$").
 
 %%============================================================================
 %% Public Api
@@ -47,6 +50,7 @@ run_data(FileName) ->
 run_log(FileName) ->
     {ok, Device} = file:open(FileName, [read]),
     run_log_file(Device).
+
 all_test_() ->
   {foreach,
     fun() ->
@@ -66,9 +70,24 @@ all_test_() ->
       {?MODULE, log_311a15e7},
       {?MODULE, log_382cfe5b},
       {?MODULE, log_d3564ef6},
-      {?MODULE, log_ea2d264b}
+      {?MODULE, log_ea2d264b},
+      {?MODULE, solution_all}
   ]
 }.
+
+run_solution(FileName) ->
+    {ok, Device} = file:open(FileName, [read]),
+    run_solution_file(Device).
+
+%% TODO: make this follow the other solution tests
+solution_all() ->
+    SolutionDir = find_dir("solution_logs"),
+    {ok, SolutionFileNames} = file:list_dir(SolutionDir),
+    lists:map(fun(F) ->
+                      SolutionFileRel = filename:join("solution_logs", F),
+                      ?_test(run_solution(find_file(SolutionFileRel)))
+              end, SolutionFileNames).
+
 data1() ->
     ExpectedResult = versionify([{"app6","0.0.1"},
                                  {"dep_pkg13","0.0.2"},
@@ -78,7 +97,7 @@ data1() ->
                                  {"dep_pkg7","0.1.2"},
                                  {"app9","0.0.1"}]),
     ?assertMatch({ok, ExpectedResult},
-                 run_data(fix_rebar_brokenness("data1.txt"))).
+                 run_data(find_file("data1.txt"))).
 
 data2() ->
     ExpectedResult = versionify([{"app18","0.0.1"},
@@ -94,7 +113,7 @@ data2() ->
                                  {"app9","0.0.1"},
                                  {"dep_pkg16","1.0.2"}]),
     ?assertMatch({ok, ExpectedResult},
-                 run_data(fix_rebar_brokenness("data2.txt"))).
+                 run_data(find_file("data2.txt"))).
 
 data3() ->
     ExpectedResult = versionify([{"app68","0.0.1"},
@@ -114,7 +133,7 @@ data3() ->
                                  {"dep_pkg7","0.1.2"},
                                  {"app9","0.0.1"},
                                  {"dep_pkg16","1.0.2"}]),
-    ?assertMatch({ok,ExpectedResult}, run_data(fix_rebar_brokenness("data3.txt"))).
+    ?assertMatch({ok,ExpectedResult}, run_data(find_file("data3.txt"))).
 
 data4() ->
     ExpectedResult = versionify([{"dep_pkg20","0.0.2"},
@@ -137,7 +156,7 @@ data4() ->
                                  {"app9","0.0.1"},
                                  {"dep_pkg16","1.0.2"}]),
     ?assertMatch({ok, ExpectedResult},
-                 run_data(fix_rebar_brokenness("data4.txt"))).
+                 run_data(find_file("data4.txt"))).
 
 data5() ->
     ExpectedResult = versionify([{"dep_pkg14","0.0.2"},
@@ -162,7 +181,7 @@ data5() ->
                                  {"app9","0.0.1"},
                                  {"dep_pkg16","1.0.2"}]),
     ?assertMatch({ok, ExpectedResult},
-                 run_data(fix_rebar_brokenness("data5.txt"))).
+                 run_data(find_file("data5.txt"))).
 
 data6() ->
     ExpectedResult = versionify([{"app108","0.0.1"},
@@ -190,181 +209,236 @@ data6() ->
                                  {"app9","0.0.1"},
                                  {"dep_pkg16","1.0.2"}]),
     ?assertMatch({ok, ExpectedResult},
-                 run_data(fix_rebar_brokenness("data6.txt"))).
+                 run_data(find_file("data6.txt"))).
 
 log_07be9e47() ->
-    Data = run_log(fix_rebar_brokenness("log-07be9e47-6f42-4a5d-b8b5-1d2eae1ad83b.txt")),
+    Data = run_log(find_file("log-07be9e47-6f42-4a5d-b8b5-1d2eae1ad83b.txt")),
     ExpectedResult = versionify([{"0","0"},
-                                  {"1","0"},
-                                  {"3","0"},
-                                  {"4","0"},
-                                  {"5","0"},
-                                  {"6","0"},
-                                  {"7","0"},
-                                  {"8","0"},
-                                  {"9","0"},
-                                  {"10","0"},
-                                  {"11","0"},
-                                  {"12","0"},
-                                  {"13","0"},
-                                  {"14","0"},
-                                  {"15","0"},
-                                  {"16","0"},
-                                  {"18","0"},
-                                  {"19","0"},
-                                  {"21","0"},
-                                  {"22","0"},
-                                  {"23","0"},
-                                  {"24","0"},
-                                  {"25","0"}]),
+                                 {"2","0"},
+                                 {"1","0"},
+                                 {"3","0"},
+                                 {"4","0"},
+                                 {"5","0"},
+                                 {"6","0"},
+                                 {"7","0"},
+                                 {"8","0"},
+                                 {"9","0"},
+                                 {"10","0"},
+                                 {"11","0"},
+                                 {"12","0"},
+                                 {"13","0"},
+                                 {"14","0"},
+                                 {"15","0"},
+                                 {"17","0"},
+                                 {"16","0"},
+                                 {"18","0"},
+                                 {"20","0"},
+                                 {"19","0"},
+                                 {"21","0"},
+                                 {"22","0"},
+                                 {"23","0"},
+                                 {"24","0"},
+                                 {"25","0"}]),
     ?assertMatch({ok, ExpectedResult},
                  Data).
 
 log_183998c1() ->
     ?assertMatch({error, {unreachable_package,<<"9">>}},
-                 run_log(fix_rebar_brokenness("log-183998c1-2ada-4214-b308-e480345c42f2.txt"))).
+                 run_log(find_file("log-183998c1-2ada-4214-b308-e480345c42f2.txt"))).
 
 
 log_311a15e7() ->
-    {ok, Data} = run_log(fix_rebar_brokenness("log-311a15e7-3378-4c5b-beb7-86a1b9cf0ea9.txt")),
-    ExpectedResult = lists:sort(versionify([{"45", "22"},
-                                            {"40","1"},
-                                            {"3","5"},
-                                            {"9","0"},
-                                            {"8","0"},
-                                            {"7","0"},
+    {ok, Data} = run_log(find_file("log-311a15e7-3378-4c5b-beb7-86a1b9cf0ea9.txt")),
+    ExpectedResult = lists:sort(versionify([{"0","2"},
                                             {"6","2"},
-                                            {"1","5"},
-                                            {"0","2"},
-                                            {"61","1"},
-                                            {"60","0"},
-                                            {"35","4"},
-                                            {"39","0"},
-                                            {"38","2"},
-                                            {"37","2"},
-                                            {"36","3"},
-                                            {"32","24"},
-                                            {"30","0"},
-                                            {"19","1"},
-                                            {"18","0"},
-                                            {"17","2"},
-                                            {"16","0"},
-                                            {"15","0"},
-                                            {"14","1"},
-                                            {"13","0"},
-                                            {"12","1"},
-                                            {"11","0"},
+                                            {"7","0"},
+                                            {"8","0"},
+                                            {"9","0"},
                                             {"10","1"},
-                                            {"59","0"},
-                                            {"58","1"},
-                                            {"57","0"},
-                                            {"56","0"},
-                                            {"55","4"},
-                                            {"29","2"},
-                                            {"27","2"},
-                                            {"26","0"},
-                                            {"25","5"},
-                                            {"24","3"},
-                                            {"23","1"},
-                                            {"22","3"},
+                                            {"11","0"},
+                                            {"12","1"},
+                                            {"13","0"},
+                                            {"14","1"},
+                                            {"15","0"},
+                                            {"16","0"},
+                                            {"17","2"},
+                                            {"18","0"},
+                                            {"20","0"},
                                             {"21","2"},
-                                            {"20","0"}])),
+                                            {"22","3"},
+                                            {"4","3"},
+                                            {"3","5"},
+                                            {"23","0"},
+                                            {"24","3"},
+                                            {"25","5"},
+                                            {"26","0"},
+                                            {"28","0"},
+                                            {"27","2"},
+                                            {"29","2"},
+                                            {"31","0"},
+                                            {"30","0"},
+                                            {"32","1"},
+                                            {"35","4"},
+                                            {"36","0"},
+                                            {"37","2"},
+                                            {"38","2"},
+                                            {"52","1"},
+                                            {"47","1"},
+                                            {"48","0"},
+                                            {"19","1"},
+                                            {"41","2"},
+                                            {"46","2"},
+                                            {"51","2"},
+                                            {"49","0"},
+                                            {"45","0"},
+                                            {"40","1"},
+                                            {"56","0"},
+                                            {"39","0"},
+                                            {"54","2"},
+                                            {"53","1"},
+                                            {"57","0"},
+                                            {"58","1"},
+                                            {"2","5"},
+                                            {"1","5"},
+                                            {"59","0"},
+                                            {"60","0"},
+                                            {"5","0"},
+                                            {"62","2"},
+                                            {"55","4"},
+                                            {"44","0"},
+                                            {"42","3"},
+                                            {"43","0"},
+                                            {"61","0"}])),
     ?assertMatch(ExpectedResult, lists:sort(Data)).
 
 log_382cfe5b() ->
     {ok, Data} =
-        run_log(fix_rebar_brokenness("log-382cfe5b-0ac2-48b8-83d1-717cb4620990.txt")),
-    ExpectedResult = lists:sort(versionify([{"18","0"},
-                                            {"17","0"},
-                                            {"15","1"},
-                                            {"14","0"},
-                                            {"10","0"},
-                                            {"7","0"},
-                                            {"6","0"},
-                                            {"5","0"},
-                                            {"4","0"},
-                                            {"3","0"},
-                                            {"2","1"},
+        run_log(find_file("log-382cfe5b-0ac2-48b8-83d1-717cb4620990.txt")),
+    ExpectedResult = lists:sort(versionify([{"0", "0"},
                                             {"1","0"},
-                                            {"0","0"}])),
+                                            {"3","0"},
+                                            {"4","0"},
+                                            {"5","0"},
+                                            {"6","0"},
+                                            {"9","1"},
+                                            {"8","0"},
+                                            {"7","0"},
+                                            {"13","0"},
+                                            {"11","0"},
+                                            {"12","0"},
+                                            {"10","0"},
+                                            {"14","0"},
+                                            {"2","1"},
+                                            {"16","0"},
+                                            {"15","0"},
+                                            {"17","0"},
+                                            {"18","0"}])),
     ?assertMatch(ExpectedResult, lists:sort(Data)).
 
 log_d3564ef6() ->
-    {ok, Data} = run_log(fix_rebar_brokenness("log-d3564ef6-6437-41e7-90b6-dbdb849551a6_mod.txt")),
-    ExpectedResult = lists:sort(versionify([{"57","5"},
-                                            {"56","3"},
-                                            {"55","4"},
-                                            {"54","0"},
-                                            {"53","1"},
-                                            {"82","0"},
-                                            {"81","0"},
-                                            {"80","1"},
-                                            {"29","0"},
-                                            {"28","5"},
-                                            {"27","3"},
-                                            {"26","1"},
-                                            {"25","3"},
-                                            {"24","2"},
-                                            {"23","0"},
-                                            {"22","1"},
-                                            {"21","0"},
-                                            {"20","2"},
-                                            {"75","32"},
-                                            {"79","2"},
-                                            {"78","4"},
-                                            {"74","7"},
-                                            {"73","11"},
-                                            {"72","0"},
-                                            {"70","1"},
-                                            {"47","4"},
-                                            {"45","1"},
-                                            {"44","1"},
-                                            {"43","7"},
-                                            {"42","1"},
-                                            {"41","2"},
-                                            {"40","2"},
-                                            {"19","0"},
-                                            {"18","0"},
-                                            {"17","1"},
-                                            {"16","0"},
-                                            {"15","1"},
-                                            {"14","0"},
-                                            {"13","1"},
-                                            {"12","0"},
-                                            {"11","0"},
-                                            {"10","0"},
-                                            {"9","2"},
-                                            {"4","5"},
+    {ok, Data} = run_log(find_file("log-d3564ef6-6437-41e7-90b6-dbdb849551a6_mod.txt")),
+    ExpectedResult = lists:sort(versionify([{"1","1"},
+                                            {"2","0"},
+                                            {"0","0"},
                                             {"3","2"},
-                                            {"0","3"},
-                                            {"69","0"},
-                                            {"68","1"},
-                                            {"67","7"},
-                                            {"39","3"},
-                                            {"35","24"},
-                                            {"33","0"},
+                                            {"9","2"},
+                                            {"11","0"},
+                                            {"12","0"},
+                                            {"13","1"},
+                                            {"14","0"},
+                                            {"15","1"},
+                                            {"16","0"},
+                                            {"17","1"},
+                                            {"18","0"},
+                                            {"19","0"},
+                                            {"20","2"},
+                                            {"21","0"},
+                                            {"23","0"},
+                                            {"24","2"},
+                                            {"25","3"},
+                                            {"7","3"},
+                                            {"6","5"},
+                                            {"26","0"},
+                                            {"27","3"},
+                                            {"28","5"},
+                                            {"29","0"},
+                                            {"31","0"},
+                                            {"30","2"},
                                             {"32","2"},
-                                            {"30","2"}])),
+                                            {"34","0"},
+                                            {"33","0"},
+                                            {"35","1"},
+                                            {"38","4"},
+                                            {"39","0"},
+                                            {"40","2"},
+                                            {"41","2"},
+                                            {"10","0"},
+                                            {"42","0"},
+                                            {"43","7"},
+                                            {"5","5"},
+                                            {"44","0"},
+                                            {"46","2"},
+                                            {"50","2"},
+                                            {"52","0"},
+                                            {"51","3"},
+                                            {"49","0"},
+                                            {"48","1"},
+                                            {"47","4"},
+                                            {"45","0"},
+                                            {"53","1"},
+                                            {"54","0"},
+                                            {"55","0"},
+                                            {"56","0"},
+                                            {"58","2"},
+                                            {"59","0"},
+                                            {"60","0"},
+                                            {"22","1"},
+                                            {"62","4"},
+                                            {"57","1"},
+                                            {"65","0"},
+                                            {"63","2"},
+                                            {"64","2"},
+                                            {"67","0"},
+                                            {"68","1"},
+                                            {"69","0"},
+                                            {"71","1"},
+                                            {"70","0"},
+                                            {"72","0"},
+                                            {"73","0"},
+                                            {"74","0"},
+                                            {"78","0"},
+                                            {"79","0"},
+                                            {"66","1"},
+                                            {"61","6"},
+                                            {"80","0"},
+                                            {"81","0"},
+                                            {"82","0"},
+                                            {"76","0"},
+                                            {"8","0"},
+                                            {"4","5"},
+                                            {"75","0"}])),
     ?assertMatch(ExpectedResult, lists:sort(Data)).
 
 log_ea2d264b() ->
-    {ok, Data} = run_log(fix_rebar_brokenness("log-ea2d264b-003e-4611-94ed-14efc7732083.txt")),
-    ExpectedResult = lists:sort(versionify([{"18","1"},
-                                            {"17","0"},
-                                            {"16","0"},
-                                            {"15","0"},
-                                            {"14","0"},
-                                            {"13","1"},
-                                            {"10","1"},
-                                            {"9","1"},
-                                            {"8","2"},
-                                            {"6","0"},
-                                            {"5","0"},
-                                            {"4","0"},
-                                            {"3","0"},
+    {ok, Data} = run_log(find_file("log-ea2d264b-003e-4611-94ed-14efc7732083.txt")),
+    ExpectedResult = lists:sort(versionify([{"0", "1"},
                                             {"2","0"},
+                                            {"3","0"},
+                                            {"4","0"},
+                                            {"5","0"},
+                                            {"7","0"},
+                                            {"6","0"},
+                                            {"8","2"},
+                                            {"9","1"},
+                                            {"11","0"},
+                                            {"10","0"},
+                                            {"13","1"},
+                                            {"14","0"},
+                                            {"15","0"},
+                                            {"16","0"},
                                             {"1","0"},
-                                            {"0","1"}])),
+                                            {"17","0"},
+                                            {"18","1"}])),
     ?assertMatch(ExpectedResult, lists:sort(Data)).
 
 %%============================================================================
@@ -375,14 +449,20 @@ versionify(X) when erlang:is_list(X) ->
 versionify({K, V}) ->
     {erlang:list_to_binary(K), depsolver:parse_version(V)}.
 
-fix_rebar_brokenness(Filename) ->
+find_file(FileName) ->
+    fix_rebar_brokenness(FileName, {filelib, is_regular}).
+
+find_dir(DirName) ->
+    fix_rebar_brokenness(DirName, {filelib, is_dir}).
+
+fix_rebar_brokenness(Filename, {Module, Fun}) ->
     Alt1 = filename:join(["./test", "data", Filename]),
     Alt2 = filename:join(["../test", "data", Filename]),
-    case filelib:is_regular(Alt1) of
+    case erlang:apply(Module, Fun, [Alt1]) of
         true ->
             Alt1;
         false ->
-            case filelib:is_regular(Alt2) of
+            case erlang:apply(Module, Fun, [Alt2]) of
                 true ->
                     Alt2;
                 false ->
@@ -405,15 +485,40 @@ goble_lines(Device, ValidVal, Acc) ->
 goble_lines(Device) ->
     goble_lines(Device, io:get_line(Device, ""), []).
 
-run_log_file(Device) ->
+%% returns {Goals, Graph, Solution}
+%%
+parse_log_file(Device) ->
     State0 = depsolver:new_graph(),
-    {Goals, State2} =
-        lists:foldl(fun(Line, Data) ->
-                            process_add_goal(Line,
-                                             process_add_constraint(Line,
-                                                                    process_add_package(Line, Data)))
-                    end, {[], State0}, goble_lines(Device)),
-    depsolver:solve(State2, Goals).
+    lists:foldl(fun(Line, Data) ->
+                        process_add_solution(Line,
+                                             process_add_goal(Line,
+                                                              process_add_constraint(Line,
+                                                                                     process_add_package(Line, Data))))
+                end, {[], State0, []}, goble_lines(Device)).
+
+run_log_file(Device) ->
+    {Goals, Graph, _Solution} = parse_log_file(Device),
+    depsolver:solve(Graph, Goals).
+
+run_solution_file(Device) ->
+    {Goals, Graph, Solution} = parse_log_file(Device),
+    {ok, Result} = depsolver:solve(Graph, Goals),
+    %% NOTE - BUGBUG
+    %% The log-generating part of the ruby code generates a solution that is defined as "the latest versions
+    %% of all the cookbooks in the graph that satisfy the goals." This data is not yet trimmed of extra cookbooks,
+    %% so it should be a superset of the `depsovler:solve()` solution. This test will give false positives
+    %% for logged solutions where `depsolver` produces a solution that is missing a required cookbook.
+    SolutionDict = solution_to_dict(Solution),
+    ResultDict = solution_to_dict(Result),
+    lists:foreach(fun(Key) ->
+                          ?assertEqual(dict:fetch(Key, ResultDict), dict:fetch(Key, SolutionDict))
+                  end, dict:fetch_keys(ResultDict)).
+
+solution_to_dict(SolutionData) ->
+    Dict = dict:new(),
+    lists:foldl(fun({Key, Value}, D) ->
+                        dict:store(Key, Value, D)
+                end, Dict, SolutionData).
 
 read_packages(Device) ->
     process_line(Device, io:get_line(Device, ""), []).
@@ -462,7 +567,7 @@ parse_app([Else | Rest], Acc) ->
 parse_app([], Acc) ->
     lists:reverse(Acc).
 
-process_add_package(Line, {Goals, State0}) ->
+process_add_package(Line, {Goals, State0, Solution}) ->
     case re:run(Line, ?ADD_PKG, [{capture, all, list}]) of
         {match, [_All, _InstNumber, PkgName, _PkgCount, VersionCount]} ->
             {Goals,
@@ -472,24 +577,33 @@ process_add_package(Line, {Goals, State0}) ->
                                                                erlang:integer_to_list(PkgVsn),
                                                                [])
                          end, State0, lists:seq(0,
-                                                erlang:list_to_integer(VersionCount)))};
+                                                erlang:list_to_integer(VersionCount))),
+            Solution};
         _ ->
-            {Goals, State0}
+            {Goals, State0, Solution}
     end.
 
-process_add_constraint(Line, {Goals, State0}) ->
+process_add_constraint(Line, {Goals, State0, Solution}) ->
     case re:run(Line, ?ADD_VC, [{capture, all, list}]) of
         {match, [_All, _InstNumber, Pkg, Vsn, Dep, _Ignore, DepVsn]} ->
             {Goals,
-             depsolver:add_package_version(State0, Pkg, Vsn, [{Dep, DepVsn}])};
+             depsolver:add_package_version(State0, Pkg, Vsn, [{Dep, DepVsn}]), Solution};
         _ ->
-            {Goals, State0}
+            {Goals, State0, Solution}
     end.
 
-process_add_goal(Line, {Goals, State0}) ->
+process_add_goal(Line, {Goals, State0, Solution}) ->
     case re:run(Line, ?ADD_GOAL, [{capture, all, list}]) of
         {match,[_All, _InstNumber, NewGoal]} ->
-            {[NewGoal | Goals], State0};
+            {[NewGoal | Goals], State0, Solution};
         _ ->
-            {Goals, State0}
+            {Goals, State0, Solution}
+    end.
+
+process_add_solution(Line, {Goals, State, Solution}) ->
+    case re:run(Line, ?ADD_SOLUTION, [{capture, all, list}]) of
+        {match, [_All, PackageID, Version]} ->
+            {Goals, State, [versionify({PackageID, Version}) | Solution]};
+        _ ->
+            {Goals, State, Solution}
     end.
