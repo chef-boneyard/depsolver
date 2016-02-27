@@ -1,6 +1,6 @@
 #Deprecated#
 
-**This code has been consolidated into [oc_erchef](https://github.com/opscode/oc_erchef) as an app (look in the apps folder). New development should occur there.**
+**This code has been consolidated into [oc_erchef](https://github.com/chef/oc_erchef) as an app (look in the apps folder). New development should occur there.**
 
 Depsolver
 =========
